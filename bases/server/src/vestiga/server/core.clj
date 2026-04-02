@@ -8,7 +8,6 @@
     [vestiga.db.interface.ops :as ops]
     [vestiga.db.interface.schema :as schema]
     [vestiga.db.interface.search :as db-search]
-    [vestiga.embed.interface.process :as embed-proc]
     [vestiga.index.interface :as index]
     [vestiga.mcp.interface :as mcp]
     [vestiga.search.interface :as search])
@@ -80,17 +79,12 @@
   [{:keys [opts]}]
   (let [project-root (:project-root opts)
         db-path      (or (:db opts) (str project-root "/.vestiga/db.sqlite"))
-        config       (config/load-config)
-        ollama       (try (embed-proc/ensure-ollama! :model (:embed-model config))
-                          (catch Exception e (log/warn "Ollama not available:" (.getMessage e)) nil))]
-    (try (with-db-conn
-           db-path
-           (fn [db]
-             (index/index-project! db project-root :config config :full (:full opts))))
-         (println "Indexing complete.")
-         (finally
-           (when ollama
-             (embed-proc/stop-ollama! ollama))))))
+        config       (config/load-config)]
+    (with-db-conn
+      db-path
+      (fn [db]
+        (index/index-project! db project-root :config config :full (:full opts))))
+    (println "Indexing complete.")))
 
 ;; ---------------------------------------------------------------------------
 ;; Subcommand: search
