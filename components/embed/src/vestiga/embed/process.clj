@@ -94,4 +94,4 @@
   [{:keys [process]}]
   (when process
     (log/info "Stopping Ollama process")
-    (.destroy process)))
+    (.destroy ^Process process)))

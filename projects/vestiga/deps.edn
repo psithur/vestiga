@@ -22,4 +22,5 @@
                                 "../../components/embed/test"
                                 "../../components/search/test"
                                 "../../components/mcp/test"
-                                "../../development/test"]}}}
+                                "../../development/test"
+                                "test"]}}}

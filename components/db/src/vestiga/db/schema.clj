@@ -35,7 +35,7 @@
                                   (and
                                     (<= (+ i 5) (count remaining))
                                     (= "BEGIN" (str/upper-case (subs remaining i (min (+ i 5) (count remaining)))))
-                                    (or (zero? i) (Character/isWhitespace (nth remaining (dec i)))))
+                                    (or (zero? i) (Character/isWhitespace ^char (nth remaining (dec i)))))
                                   (recur (+ i 5) (inc depth))
 
                                   ;; Check for END
@@ -43,7 +43,7 @@
                                     (pos? depth)
                                     (<= (+ i 3) (count remaining))
                                     (= "END" (str/upper-case (subs remaining i (min (+ i 3) (count remaining)))))
-                                    (or (zero? i) (Character/isWhitespace (nth remaining (dec i)))))
+                                    (or (zero? i) (Character/isWhitespace ^char (nth remaining (dec i)))))
                                   (recur (+ i 3) (dec depth))
 
                                   ;; Semicolon at top level

@@ -2,7 +2,9 @@
   (:require
     [clojure.java.io :as io]
     [clojure.tools.logging :as log])
-  (:import [java.sql DriverManager Connection PreparedStatement ResultSet]))
+  (:import [java.sql DriverManager Connection PreparedStatement ResultSet Statement]))
+
+(defn- get-conn ^Connection [db] (:conn db))
 
 (defn- apply-pragmas!
   "Apply SQLite PRAGMA settings for performance and correctness."
@@ -53,11 +55,12 @@
 
 (defn close-db
   "Close the database connection."
-  [{:keys [^Connection conn]}]
-  (when (and
-          conn
-          (not (.isClosed conn)))
-    (.close conn)))
+  [db]
+  (let [^Connection conn (get-conn db)]
+    (when (and
+            conn
+            (not (.isClosed conn)))
+      (.close conn))))
 
 (defn with-db
   "Execute f with an open database, ensuring cleanup."
@@ -68,49 +71,45 @@
 (defn execute-raw!
   "Execute a SQL statement that may or may not return results.
    Used for DDL, PRAGMAs, etc. Returns nil."
-  [{:keys [^Connection conn]} sql]
-  (let [stmt (.createStatement conn)]
+  [db sql]
+  (let [^Connection conn (get-conn db)
+        ^Statement stmt  (.createStatement conn)]
     (try (.execute stmt sql) (finally (.close stmt)))))
+
+(defn- bind-params!
+  "Bind parameters to a PreparedStatement."
+  [^PreparedStatement ps params]
+  (doseq [[i v] (map-indexed vector params)]
+    (let [idx (int (inc i))]
+      (cond
+        (nil? v)
+        (.setNull ps idx java.sql.Types/NULL)
+        (string? v)
+        (.setString ps idx ^String v)
+        (integer? v)
+        (.setLong ps idx (long v))
+        (float? v)
+        (.setDouble ps idx (double v))
+        :else
+        (.setObject ps idx v)))))
 
 (defn execute!
   "Execute a SQL statement with parameters. Returns update count."
-  [{:keys [^Connection conn]} sql params]
-  (let [ps (.prepareStatement conn sql)]
-    (try (doseq [[i v] (map-indexed vector params)]
-           (cond
-             (nil? v)
-             (.setNull ps (inc i) java.sql.Types/NULL)
-             (string? v)
-             (.setString ps (inc i) v)
-             (integer? v)
-             (.setLong ps (inc i) (long v))
-             (float? v)
-             (.setDouble ps (inc i) (double v))
-             :else
-             (.setObject ps (inc i) v)))
-         (.executeUpdate ps)
-         (finally (.close ps)))))
+  [db sql params]
+  (let [^Connection conn      (get-conn db)
+        ^PreparedStatement ps (.prepareStatement conn ^String sql)]
+    (try (bind-params! ps params) (.executeUpdate ps) (finally (.close ps)))))
 
 (defn execute-returning-key!
   "Execute a SQL INSERT and return the generated key."
-  [{:keys [^Connection conn]} sql params]
-  (let [ps (.prepareStatement conn sql java.sql.Statement/RETURN_GENERATED_KEYS)]
-    (try (doseq [[i v] (map-indexed vector params)]
-           (cond
-             (nil? v)
-             (.setNull ps (inc i) java.sql.Types/NULL)
-             (string? v)
-             (.setString ps (inc i) v)
-             (integer? v)
-             (.setLong ps (inc i) (long v))
-             (float? v)
-             (.setDouble ps (inc i) (double v))
-             :else
-             (.setObject ps (inc i) v)))
+  [db sql params]
+  (let [^Connection conn      (get-conn db)
+        ^PreparedStatement ps (.prepareStatement conn ^String sql (int Statement/RETURN_GENERATED_KEYS))]
+    (try (bind-params! ps params)
          (.executeUpdate ps)
-         (let [rs (.getGeneratedKeys ps)]
+         (let [^ResultSet rs (.getGeneratedKeys ps)]
            (when (.next rs)
-             (.getLong rs 1)))
+             (.getLong rs (int 1))))
          (finally (.close ps)))))
 
 (defn- resultset->maps
@@ -118,7 +117,7 @@
   [^ResultSet rs]
   (let [meta      (.getMetaData rs)
         col-count (.getColumnCount meta)
-        col-names (mapv #(keyword (.getColumnLabel meta (inc %))) (range col-count))]
+        col-names (mapv #(keyword (.getColumnLabel meta (int (inc %)))) (range col-count))]
     (loop [rows (transient [])]
       (if (.next rs)
         (recur
@@ -128,38 +127,29 @@
               {}
               (map
                 (fn [i]
-                  [(nth col-names i) (.getObject rs (inc i))])
+                  [(nth col-names i) (.getObject rs (int (inc i)))])
                 (range col-count)))))
         (persistent! rows)))))
 
 (defn query
   "Execute a SQL query with parameters. Returns vector of maps."
-  [{:keys [^Connection conn]} sql params]
-  (let [ps (.prepareStatement conn sql)]
-    (try (doseq [[i v] (map-indexed vector params)]
-           (cond
-             (nil? v)
-             (.setNull ps (inc i) java.sql.Types/NULL)
-             (string? v)
-             (.setString ps (inc i) v)
-             (integer? v)
-             (.setLong ps (inc i) (long v))
-             (float? v)
-             (.setDouble ps (inc i) (double v))
-             :else
-             (.setObject ps (inc i) v)))
+  [db sql params]
+  (let [^Connection conn      (get-conn db)
+        ^PreparedStatement ps (.prepareStatement conn ^String sql)]
+    (try (bind-params! ps params)
          (let [rs (.executeQuery ps)]
            (resultset->maps rs))
          (finally (.close ps)))))
 
 (defn with-transaction
   "Execute f within a transaction. Rolls back on exception."
-  [{:keys [^Connection conn]
+  [{:keys [conn]
     :as   db} f]
-  (let [auto-commit (.getAutoCommit conn)]
-    (.setAutoCommit conn false)
+  (let [^Connection c conn
+        auto-commit   (.getAutoCommit c)]
+    (.setAutoCommit c false)
     (try (let [result (f db)]
-           (.commit conn)
+           (.commit c)
            result)
-         (catch Exception e (.rollback conn) (throw e))
-         (finally (.setAutoCommit conn auto-commit)))))
+         (catch Exception e (.rollback c) (throw e))
+         (finally (.setAutoCommit c auto-commit)))))

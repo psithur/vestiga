@@ -38,19 +38,20 @@
    Blocks until stdin is closed."
   [db]
   (log/info "Starting MCP server...")
-  (binding [tools/*db* db]
-    (loop []
-      (when-let [request (transport/read-message System/in)]
-        (log/debug "Received request:" (:method request))
-        (let [response (handle-method request)]
-          (when response
-            (transport/write-message
-              System/out
-              (if (:error response)
-                {:jsonrpc "2.0"
-                 :id      (:id request)
-                 :error   (:error response)}
-                {:jsonrpc "2.0"
-                 :id      (:id request)
-                 :result  response}))))
-        (recur)))))
+  (let [reader (transport/make-reader System/in)]
+    (binding [tools/*db* db]
+      (loop []
+        (when-let [request (transport/read-message reader)]
+          (log/debug "Received request:" (:method request))
+          (let [response (handle-method request)]
+            (when response
+              (transport/write-message
+                System/out
+                (if (:error response)
+                  {:jsonrpc "2.0"
+                   :id      (:id request)
+                   :error   (:error response)}
+                  {:jsonrpc "2.0"
+                   :id      (:id request)
+                   :result  response}))))
+          (recur))))))

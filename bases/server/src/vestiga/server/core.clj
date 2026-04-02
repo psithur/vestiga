@@ -11,18 +11,26 @@
     [vestiga.search.interface :as search])
   (:gen-class))
 
+(defn- which
+  "Check if a binary is on PATH. Returns true if found."
+  [binary]
+  (try (zero? (.waitFor (.exec (Runtime/getRuntime) ^"[Ljava.lang.String;" (into-array String ["which" binary]))))
+       (catch Exception _ false)))
+
 (defn check-prerequisites!
   "Verify external binaries are available. Returns map of availability."
   []
-  {:clj-kondo (zero? (.waitFor (.exec (Runtime/getRuntime) (into-array ["which" "clj-kondo"]))))
-   :git       (zero? (.waitFor (.exec (Runtime/getRuntime) (into-array ["which" "git"]))))
-   :ollama    (zero? (.waitFor (.exec (Runtime/getRuntime) (into-array ["which" "ollama"]))))})
+  {:clj-kondo (which "clj-kondo")
+   :git       (which "git")
+   :ollama    (which "ollama")})
 
 (defn -main
   [& args]
   (let [cmd (first args)]
     (case cmd
-      ("serve" nil) (let [prereqs (check-prerequisites!)
+      ("serve" nil) (let [;; Suppress stderr logging — MCP clients interpret it as errors
+                          _ (System/setProperty "org.slf4j.simpleLogger.defaultLogLevel" "off")
+                          prereqs (check-prerequisites!)
                           _ (when-not (:clj-kondo prereqs) (log/error "clj-kondo not found on PATH") (System/exit 1))
                           config  (config/load-config)
                           ollama  (when (:ollama prereqs)

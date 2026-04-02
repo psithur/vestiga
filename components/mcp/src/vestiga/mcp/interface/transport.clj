@@ -2,9 +2,13 @@
   (:require
     [vestiga.mcp.transport :as transport]))
 
-(defn read-message
+(defn make-reader
   [in]
-  (transport/read-message in))
+  (transport/make-reader in))
+
+(defn read-message
+  [reader]
+  (transport/read-message reader))
 
 (defn write-message
   [out msg]

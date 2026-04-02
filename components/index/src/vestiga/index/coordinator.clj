@@ -79,8 +79,9 @@
   [db project-root &
    {:keys [skip-embeddings full config]
     :or   {config {}}}]
-  (let [root-path    (.getAbsolutePath (java.io.File. project-root))
-        project-name (.getName (java.io.File. project-root))
+  (let [root-file    (java.io.File. ^String project-root)
+        root-path    (.getAbsolutePath root-file)
+        project-name (.getName root-file)
         project-id   (ops/upsert-project!
                        db
                        {:root-path root-path

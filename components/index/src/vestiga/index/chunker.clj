@@ -37,8 +37,9 @@
   (when (and
           source-text
           (not (str/blank? source-text)))
-    (let [lines      (str/split-lines source-text)
-          line-count (count lines)]
+    (let [^String src source-text
+          lines       (str/split-lines src)
+          line-count  (count lines)]
       (loop [i              0
              depth          0
              in-string      false
@@ -50,7 +51,7 @@
              forms          (transient [])
              line-num       1
              col            0]
-        (if (>= i (count source-text))
+        (if (>= i (count src))
           ;; End of file — flush any remaining form
           (let [result (persistent! forms)]
             (if (and
@@ -59,11 +60,11 @@
               ;; Unclosed form — include it anyway
               (conj
                 result
-                {:content    (subs source-text (or pre-form-start form-start))
-                 :start-line (inc (count (filter #(= % \newline) (subs source-text 0 (or pre-form-start form-start)))))
+                {:content    (subs src (or pre-form-start form-start))
+                 :start-line (inc (count (filter #(= % \newline) (subs src 0 (or pre-form-start form-start)))))
                  :end-line   line-num})
               result))
-          (let [ch (.charAt source-text i)]
+          (let [ch (.charAt src i)]
             (cond
               ;; Newline handling
               (= ch \newline)
@@ -184,8 +185,8 @@
               ;; Start of regex literal #"..."
               (and
                 (= ch \#)
-                (< (inc i) (count source-text))
-                (= (.charAt source-text (inc i)) \"))
+                (< (inc i) (count src))
+                (= (.charAt src (inc i)) \"))
               (recur (+ i 2) depth in-string in-comment true false form-start pre-form-start forms line-num (+ col 2))
 
               ;; Start of string
@@ -224,8 +225,8 @@
                   ;; Form complete — extract it
                   (let [form-end     (inc i)
                         actual-start (or pre-form-start form-start i)
-                        content      (subs source-text actual-start form-end)
-                        start-ln     (inc (count (filter #(= % \newline) (subs source-text 0 actual-start))))
+                        content      (subs src actual-start form-end)
+                        start-ln     (inc (count (filter #(= % \newline) (subs src 0 actual-start))))
                         end-ln       line-num]
                     (recur
                       (inc i)
