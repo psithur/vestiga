@@ -1,0 +1,2 @@
+#!/usr/bin/env sh
+exec /home/user/projects/vestiga/target/vestiga serve 2>/dev/null

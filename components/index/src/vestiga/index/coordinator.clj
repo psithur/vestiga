@@ -87,7 +87,22 @@
                        {:root-path root-path
                         :name      project-name})
         project      (ops/get-project db root-path)
-        index-paths  (or (:index-paths config) ["src" "test"])
+        config-paths (:index-paths config)
+        ;; Auto-discover: if configured paths don't exist, look for Polylith layout
+        index-paths  (let [candidates (or config-paths ["src" "test"])
+                           existing   (filterv #(.isDirectory (java.io.File. root-file ^String %)) candidates)]
+                       (if (seq existing)
+                         existing
+                         ;; Fallback: discover components/*/src, bases/*/src
+                         (let [poly-dirs (for [parent ["components" "bases"]
+                                               :let   [^java.io.File pdir (java.io.File. root-file ^String parent)]
+                                               :when  (.isDirectory pdir)
+                                               ^java.io.File child (.listFiles pdir)
+                                               :when  (.isDirectory child)
+                                               :let   [^java.io.File src (java.io.File. child "src")]
+                                               :when  (.isDirectory src)]
+                                           (str parent "/" (.getName child) "/src"))]
+                           (if (seq poly-dirs) (vec poly-dirs) candidates))))
         extensions   (or (:file-extensions config) #{".clj" ".cljs" ".cljc" ".bb"})
         max-commits  (or (:git-max-commits config) 10000)]
 

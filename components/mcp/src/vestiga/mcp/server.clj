@@ -43,7 +43,11 @@
       (loop []
         (when-let [request (transport/read-message reader)]
           (log/debug "Received request:" (:method request))
-          (let [response (handle-method request)]
+          (let [response (try (handle-method request)
+                              (catch Exception e
+                                (log/error e "Error handling method" (:method request))
+                                {:error {:code    -32603
+                                         :message (str "Internal error: " (.getMessage e))}}))]
             (when response
               (transport/write-message
                 System/out

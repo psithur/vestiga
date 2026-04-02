@@ -1,8 +1,8 @@
 {
   "mcpServers": {
     "vestiga": {
-      "command": "sh",
-      "args": ["-c", "/home/user/projects/vestiga/target/vestiga serve 2>/dev/null"]
+      "command": "/home/user/projects/vestiga/target/vestiga",
+      "args": ["serve"]
     }
   }
 }

@@ -10,30 +10,51 @@
 
 (defn read-message
   "Read one JSON-RPC message from a BufferedReader.
-   Returns parsed JSON map, or nil on EOF."
+   Supports both newline-delimited JSON (MCP stdio) and Content-Length framing."
   [^BufferedReader reader]
-  (try (let [header-line (.readLine reader)]
-         (when header-line
-           (let [content-length (when (.startsWith header-line "Content-Length:")
-                                  (parse-long (.trim (subs header-line 15))))]
-             (when content-length
-               ;; Read the empty line after headers
-               (.readLine reader)
-               ;; Read exactly content-length characters
-               (let [buf (char-array content-length)]
-                 (loop [offset 0]
-                   (when (< offset content-length)
-                     (let [n (.read reader buf offset (- content-length offset))]
-                       (when (pos? n)
-                         (recur (+ offset n))))))
-                 (json/read-str (String. buf) :key-fn keyword))))))
-       (catch Exception _ nil)))
+  (try
+    (loop []
+      (let [line (.readLine reader)]
+        (when line
+          (let [trimmed (.trim line)]
+            (cond
+              ;; Empty line — skip
+              (= trimmed "")
+              (recur)
+
+              ;; Content-Length header — read framed message
+              (.startsWith trimmed "Content-Length:")
+              (let [content-length (parse-long (.trim (subs trimmed 15)))]
+                ;; Read until empty line (end of headers)
+                (loop []
+                  (let [h (.readLine reader)]
+                    (when (and
+                            h
+                            (not= (.trim h) ""))
+                      (recur))))
+                ;; Read exactly content-length characters
+                (let [buf (char-array content-length)]
+                  (loop [offset 0]
+                    (when (< offset content-length)
+                      (let [n (.read reader buf offset (- content-length offset))]
+                        (when (pos? n)
+                          (recur (+ offset n))))))
+                  (json/read-str (String. buf) :key-fn keyword)))
+
+              ;; Bare JSON line (newline-delimited)
+              (.startsWith trimmed "{")
+              (json/read-str trimmed :key-fn keyword)
+
+              ;; Unknown line — skip
+              :else
+              (recur))))))
+    (catch Exception _ nil)))
 
 (defn write-message
-  "Write one JSON-RPC message to an OutputStream."
+  "Write one JSON-RPC message to an OutputStream as newline-delimited JSON."
   [^OutputStream out msg]
-  (let [body         (json/write-str msg)
-        ^bytes bytes (.getBytes ^String body "UTF-8")]
-    (.write out (.getBytes (str "Content-Length: " (alength bytes) "\r\n\r\n") "UTF-8"))
+  (let [^String body (json/write-str msg)
+        ^bytes bytes (.getBytes body "UTF-8")]
     (.write out bytes)
+    (.write out (.getBytes "\n" "UTF-8"))
     (.flush out)))

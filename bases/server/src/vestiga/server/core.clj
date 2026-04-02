@@ -30,22 +30,11 @@
     (case cmd
       ("serve" nil) (let [;; Suppress stderr logging — MCP clients interpret it as errors
                           _ (System/setProperty "org.slf4j.simpleLogger.defaultLogLevel" "off")
-                          prereqs (check-prerequisites!)
-                          _ (when-not (:clj-kondo prereqs) (log/error "clj-kondo not found on PATH") (System/exit 1))
-                          config  (config/load-config)
-                          ollama  (when (:ollama prereqs)
-                                    (try (embed-proc/ensure-ollama! :model (:embed-model config))
-                                         (catch Exception e
-                                           (log/warn "Ollama not available, semantic search disabled:" (.getMessage e))
-                                           nil)))
+                          ;; Start MCP server immediately — skip Ollama/prereq checks
+                          ;; to avoid blocking the MCP handshake
                           db-path (or (second args) ".vestiga/db.sqlite")
                           db-conn (db/open-db db-path)]
-                      (try (schema/ensure-schema! db-conn)
-                           (mcp/start-server! db-conn)
-                           (finally
-                             (db/close-db db-conn)
-                             (when ollama
-                               (embed-proc/stop-ollama! ollama)))))
+                      (try (schema/ensure-schema! db-conn) (mcp/start-server! db-conn) (finally (db/close-db db-conn))))
 
       "index"       (let [project-root (or (second args) ".")
                           config       (config/load-config)
