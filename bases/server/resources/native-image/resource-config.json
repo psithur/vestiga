@@ -1,0 +1,9 @@
+{
+  "resources": {
+    "includes": [
+      {"pattern": "schema\\.sql$"},
+      {"pattern": "org/sqlite/.*\\.properties$"},
+      {"pattern": "META-INF/native-image/.*"}
+    ]
+  }
+}

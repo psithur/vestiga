@@ -1,0 +1,12 @@
+[
+  {
+    "name": "org.sqlite.JDBC",
+    "methods": [{"name": "<init>", "parameterTypes": []}]
+  },
+  {
+    "name": "org.sqlite.core.NativeDB",
+    "allDeclaredMethods": true,
+    "allDeclaredFields": true,
+    "allDeclaredConstructors": true
+  }
+]

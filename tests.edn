@@ -1,0 +1,22 @@
+#kaocha/v1 {:tests   [{:id          :unit
+                       :test-paths  ["components/config/test"
+                                     "components/db/test"
+                                     "components/index/test"
+                                     "components/embed/test"
+                                     "components/search/test"
+                                     "components/mcp/test"
+                                     "development/test"]
+                       :ns-patterns [".*-test$"]
+                       :skip-meta   [:integration]}
+
+                      {:id          :integration
+                       :test-paths  ["components/config/test"
+                                     "components/db/test"
+                                     "components/index/test"
+                                     "components/embed/test"
+                                     "components/search/test"
+                                     "components/mcp/test"
+                                     "development/test"]
+                       :ns-patterns [".*-test$"]
+                       :focus-meta  [:integration]}]
+            :plugins [:kaocha.plugin/profiling]}

@@ -1,0 +1,3 @@
+{:lint-as {babashka.process/process clojure.core/identity}
+ :linters {:unused-binding   {:level :warning}
+           :unused-namespace {:level :warning}}}

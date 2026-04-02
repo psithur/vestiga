@@ -1,0 +1,9 @@
+{:compact-views        #{}
+ :default-profile-name "default"
+ :interface-ns         "interface"
+ :projects             {"vestiga" {:alias "vest"}}
+ :tag-patterns         {:release "v[0-9]*"
+                        :stable  "stable-*"}
+ :top-namespace        "vestiga"
+ :vcs                  {:auto-add false
+                        :name     "git"}}

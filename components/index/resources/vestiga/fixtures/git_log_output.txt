@@ -1,0 +1,12 @@
+COMMIT:abc123def456789012345678901234567890abcd|Alice|1712000000|Add authentication middleware
+5	2	src/app/auth.clj
+10	0	src/app/middleware.clj
+
+COMMIT:def456789012345678901234567890abcdef1234|Bob|1711990000|Fix database connection pool leak
+3	8	src/app/db.clj
+1	1	test/app/db_test.clj
+
+COMMIT:789012345678901234567890abcdef1234567890|Alice|1711980000|Initial project setup
+50	0	src/app/core.clj
+20	0	src/app/config.clj
+30	0	deps.edn

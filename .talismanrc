@@ -1,0 +1,43 @@
+threshold: medium
+fileignoreconfig:
+- filename: '*.png'
+  ignore_detectors:
+    - filecontent
+- filename: components/pdf-slice/test-resources/ito_report_pdf.pdf
+  checksum: 88b9361c829414318d3a2b9019bf92a9d25cc6add403b38d2b077af754e22d43
+- filename: components/pdf-slice/test-resources/Government Response - itagenda_aps_pdf.pdf
+  checksum: d14cb7861ab061df9512c0e61b7cc85251f4d8660185b4396745460c6ecaa487
+- filename: components/pdf-slice/test-resources/Sub 005_Department of Industry, Science
+    and Resources_Published_Inquiry into Commonwealth procurement.pdf
+  checksum: 6981d1732e4c9b285efaa519dfa84cfd3dba6668ca048e0683b5893d40b86efa
+- filename: components/pdf-slice/test-resources/Submission_0006_Boston_Consulting_Group_6_1_Supplementary_to_submission_6.pdf
+  checksum: 37c23d71365e6740d048a550923757e8b72d1584cab9b40914b9dec0da8082b0
+- filename: components/pdf-slice/test-resources/Defence Submission_redacted.pdf
+  checksum: fa9d047785de1ca4cb7111d9b8bbc014f407b05c38cecbe6e1fe110396a1f672
+- filename: components/pdf-slice/test-resources/Review-of-the-Australian-Governments-Use-of-Information-and-Communication-Technology.pdf
+  checksum: 5842ec291c473fdcfad22c1bf602819e4d029f70aad81cded4c659e3f2626fab
+- filename: components/pdf-slice/test-resources/Royal Commission into the Robodebt
+    Scheme.pdf
+  checksum: e8616cd6df5a4731c12be6b5f3ae65bb4a7b1efff88b5bd347bfcf9316cf02db
+- filename: components/pdf-slice/test-resources/s4871_pdf.pdf
+  checksum: 98f92b880d71834a623ab02406b76f50ad2177904fc994f5fb02a8481b4703d6
+- filename: components/pdf-slice/test-resources/TCA-Tech-sectors-economic-contribution-full-res.pdf
+  checksum: 5414033536115ea111bd54f73bc0bb2893011cde67c2ec5b4a6a0656074c01e0
+- filename: components/pdf-slice/test-resources/Influenceofinternationaldigitalplatforms.pdf
+  checksum: 2fa3f7556325f701fafd1b1a6522df695ef65e2be504b0918c44fef9652b2b91
+- filename: components/pdf-slice/test-resources/Submission_0006_National_Advisory.pdf
+  checksum: bd45628bdc7ec86db1d0842118ad591d1ea6d894eb0208b4413c2d85db9861d0
+- filename: components/pdf-slice/test-resources/Submission_0030_Institute_of_Management_Consultants_Australia_Attachment_5.pdf
+  checksum: 58ef1472d3a14b83cc769ecaeade2af9e25763c9bf91f31b2b1895c8dc19821f
+version: ""
+scopeconfig:
+  - scope: node
+allowed_patterns:
+- key
+- https://clojurians.slack.com/archives.*
+- :file/hash .*
+- Commit hash.*
+- https://gist.github.com.*
+- GOOGLE_APPLICATION_CREDENTIALS=/path/to/credent.*
+- 746c5a898b4f8a21ed26e.*
+- :sha.*

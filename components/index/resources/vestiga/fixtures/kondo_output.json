@@ -1,0 +1,122 @@
+{
+  "analysis": {
+    "namespace-definitions": [
+      {"name": "sample.core", "filename": "src/sample/core.clj", "row": 1, "col": 1, "end-row": 3, "end-col": 37},
+      {"name": "sample.util", "filename": "src/sample/util.clj", "row": 1, "col": 1, "end-row": 1, "end-col": 21},
+      {"name": "sample.protocols", "filename": "src/sample/protocols.clj", "row": 1, "col": 1, "end-row": 1, "end-col": 25}
+    ],
+    "namespace-usages": [
+      {"from": "sample.core", "to": "sample.util"},
+      {"from": "sample.core", "to": "sample.protocols"}
+    ],
+    "var-definitions": [
+      {
+        "ns": "sample.core",
+        "name": "greet",
+        "filename": "src/sample/core.clj",
+        "row": 5,
+        "col": 1,
+        "end-row": 8,
+        "end-col": 25,
+        "defined-by": "clojure.core/defn",
+        "arglist-strs": ["[name]"],
+        "doc": "Greet someone by name."
+      },
+      {
+        "ns": "sample.core",
+        "name": "process-items",
+        "filename": "src/sample/core.clj",
+        "row": 10,
+        "col": 1,
+        "end-row": 15,
+        "end-col": 10,
+        "defined-by": "clojure.core/defn",
+        "arglist-strs": ["[items]"],
+        "doc": "Process a sequence of items."
+      },
+      {
+        "ns": "sample.core",
+        "name": "Searchable",
+        "filename": "src/sample/core.clj",
+        "row": 17,
+        "col": 1,
+        "end-row": 19,
+        "end-col": 46,
+        "defined-by": "clojure.core/defprotocol"
+      },
+      {
+        "ns": "sample.core",
+        "name": "run-pipeline",
+        "filename": "src/sample/core.clj",
+        "row": 21,
+        "col": 1,
+        "end-row": 25,
+        "end-col": 28,
+        "defined-by": "clojure.core/defn",
+        "arglist-strs": ["[config items]"],
+        "doc": "Run the full processing pipeline."
+      },
+      {
+        "ns": "sample.util",
+        "name": "transform-item",
+        "filename": "src/sample/util.clj",
+        "row": 3,
+        "col": 1,
+        "end-row": 5,
+        "end-col": 29,
+        "defined-by": "clojure.core/defn",
+        "arglist-strs": ["[item]"],
+        "doc": "Transform an item by adding a processed flag."
+      },
+      {
+        "ns": "sample.util",
+        "name": "valid?",
+        "filename": "src/sample/util.clj",
+        "row": 7,
+        "col": 1,
+        "end-row": 10,
+        "end-col": 28,
+        "defined-by": "clojure.core/defn",
+        "arglist-strs": ["[item]"],
+        "doc": "Check if an item is valid."
+      },
+      {
+        "ns": "sample.util",
+        "name": "format-output",
+        "filename": "src/sample/util.clj",
+        "row": 12,
+        "col": 1,
+        "end-row": 14,
+        "end-col": 68,
+        "defined-by": "clojure.core/defn",
+        "arglist-strs": ["[item]"],
+        "doc": "Format an item for display."
+      },
+      {
+        "ns": "sample.protocols",
+        "name": "Indexable",
+        "filename": "src/sample/protocols.clj",
+        "row": 3,
+        "col": 1,
+        "end-row": 5,
+        "end-col": 51,
+        "defined-by": "clojure.core/defprotocol"
+      },
+      {
+        "ns": "sample.protocols",
+        "name": "Document",
+        "filename": "src/sample/protocols.clj",
+        "row": 7,
+        "col": 1,
+        "end-row": 12,
+        "end-col": 34,
+        "defined-by": "clojure.core/defrecord"
+      }
+    ],
+    "var-usages": [
+      {"from": "sample.core", "from-var": "process-items", "to": "sample.util", "name": "transform-item", "filename": "src/sample/core.clj", "row": 13, "col": 10},
+      {"from": "sample.core", "from-var": "process-items", "to": "sample.util", "name": "valid?", "filename": "src/sample/core.clj", "row": 14, "col": 13},
+      {"from": "sample.core", "from-var": "run-pipeline", "to": "sample.core", "name": "process-items", "filename": "src/sample/core.clj", "row": 23, "col": 22}
+    ]
+  }
+}
