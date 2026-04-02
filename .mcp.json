@@ -2,7 +2,7 @@
   "mcpServers": {
     "vestiga": {
       "command": "/home/user/projects/vestiga/target/vestiga",
-      "args": ["serve"]
+      "args": ["mcp"]
     }
   }
 }

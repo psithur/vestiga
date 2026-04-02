@@ -1,6 +1,6 @@
 # vestiga
 
-A local, offline code intelligence MCP server for Clojure codebases. Indexes source code with clj-kondo, stores metadata in SQLite with FTS5, and provides hybrid BM25 + semantic search via the Model Context Protocol.
+Local, offline code intelligence for Clojure codebases. Indexes source code with clj-kondo, stores metadata in SQLite with FTS5, and provides hybrid BM25 search via CLI tools or MCP server.
 
 ## Prerequisites
 
@@ -16,57 +16,172 @@ A local, offline code intelligence MCP server for Clojure codebases. Indexes sou
 
 ```bash
 # Index a Clojure project
-clj -M:dev -m vestiga.server.core index /path/to/project
+vestiga index -p /path/to/project
 
 # Search indexed code
-clj -M:dev -m vestiga.server.core search "handle request"
+vestiga search "handle request"
 
-# Start the MCP server (for AI tool integration)
-clj -M:dev -m vestiga.server.core serve
+# Find all callers of a function
+vestiga refs my.app.core/handler
+
+# Find namespace dependents
+vestiga deps my.app.db
+
+# Impact analysis before a refactor
+vestiga impact my.app.core/handler
+
+# Search git history
+vestiga history "authentication"
 ```
+
+## CLI Reference
+
+```
+vestiga <command> [options] [args]
+
+Commands:
+  deps       Find all namespaces that depend on a namespace
+  history    Search git commit history
+  impact     Analyse impact of changing a symbol
+  index      Index a project for searching
+  mcp        Start the MCP JSON-RPC server (for AI tool integration)
+  refs       Find all references to a symbol
+  search     Search indexed code
+
+Run 'vestiga <command> --help' for command-specific options.
+```
+
+### vestiga search
+
+```bash
+vestiga search [opts] <query>
+  -d, --db PATH         Database path (default: .vestiga/db.sqlite)
+  -l, --limit N         Max results (default: 20)
+  -k, --kind KIND       Filter by symbol kind (defn, defmacro, defprotocol, etc.)
+  -n, --namespace NS    Filter by namespace (supports * glob)
+
+# Examples
+vestiga search "parse request"
+vestiga search -k defn "validate"
+vestiga search -n "my.app.*" "config"
+```
+
+### vestiga refs
+
+```bash
+vestiga refs [opts] <qualified-name>
+  -d, --db PATH         Database path
+
+# Examples
+vestiga refs my.app.core/handle-request
+```
+
+### vestiga deps
+
+```bash
+vestiga deps [opts] <namespace>
+  -d, --db PATH         Database path
+
+# Examples
+vestiga deps my.app.db
+```
+
+### vestiga impact
+
+```bash
+vestiga impact [opts] <qualified-name>
+  -d, --db PATH         Database path
+
+# Shows: callers, namespace dependents, recent git commits
+vestiga impact my.app.core/handle-request
+```
+
+### vestiga history
+
+```bash
+vestiga history [opts] <query>
+  -d, --db PATH         Database path
+  -l, --limit N         Max results (default: 20)
+  -f, --file PATH       Filter to commits touching this file
+
+# Examples
+vestiga history "authentication"
+vestiga history -f src/my/app/auth.clj "fix"
+```
+
+### vestiga index
+
+```bash
+vestiga index [opts]
+  -p, --project-root PATH  Project root directory (default: .)
+  -d, --db PATH            Database path (default: <project-root>/.vestiga/db.sqlite)
+  -f, --full               Force full re-index
+
+# Examples
+vestiga index -p /path/to/project
+vestiga index -p . -f                # full re-index
+```
+
+### vestiga mcp
+
+```bash
+vestiga mcp [opts]
+  -d, --db PATH         Database path (default: .vestiga/db.sqlite)
+```
+
+Starts the MCP JSON-RPC server over stdio. Used by AI tools (Claude Code, etc.).
 
 ## MCP Integration
 
-Add to your MCP client config (Claude Code, OpenCode, etc.):
+Add to `.mcp.json` in your project root:
+
+```json
+{
+  "mcpServers": {
+    "vestiga": {
+      "command": "/path/to/vestiga",
+      "args": ["mcp"]
+    }
+  }
+}
+```
+
+Or for development:
 
 ```json
 {
   "mcpServers": {
     "vestiga": {
       "command": "clj",
-      "args": ["-M:dev", "-m", "vestiga.server.core", "serve"],
+      "args": ["-M:dev", "-m", "vestiga.server.core", "mcp"],
       "cwd": "/path/to/vestiga"
     }
   }
 }
 ```
 
-### Available Tools
+### MCP Tools
 
-| Tool | Description |
-|------|-------------|
-| `search_code` | Hybrid BM25 text search across indexed code |
-| `find_references` | Find all call sites of a fully qualified symbol |
-| `find_dependents` | Find namespaces that depend on a given namespace |
-| `impact_analysis` | Callers, namespace dependents, and recent git history for a symbol |
-| `search_history` | Search git commit messages and changed files |
-| `index_project` | Index or re-index a project on demand |
+| Tool | CLI equivalent |
+|------|---------------|
+| `search_code` | `vestiga search` |
+| `find_references` | `vestiga refs` |
+| `find_dependents` | `vestiga deps` |
+| `impact_analysis` | `vestiga impact` |
+| `search_history` | `vestiga history` |
+| `index_project` | `vestiga index` |
 
 ## Architecture
 
-vestiga is structured as a [Polylith](https://polylith.gitbook.io/) workspace with 6 components and 1 base.
+Polylith workspace with 6 components and 1 base.
 
 ```
                   server (base)
-                  |- entry point, CLI
+                  |- CLI + MCP entry point
                   v
     .------+------+------+------+------.
     |      |      |      |      |      |
   config   db   index  embed  search  mcp
-    |             |             |      |
-    '--- leaf     +-> db        +-> db |
-                  |             '------+-> search
-                  '-> db               '-> db
 ```
 
 ### Components
@@ -80,24 +195,6 @@ vestiga is structured as a [Polylith](https://polylith.gitbook.io/) workspace wi
 | **search** | Hybrid search engine, Reciprocal Rank Fusion ranking |
 | **mcp** | MCP JSON-RPC server, tool definitions and handlers, stdio transport |
 
-### Base
-
-| Base | Responsibility |
-|------|---------------|
-| **server** | `-main` entry point, CLI argument parsing, component wiring |
-
-### Brick Dependencies
-
-```
-config  .  .  .  .  .  .
-db      .  .  .  .  .  .
-embed   .  .  .  .  .  .
-index   .  x  .  .  .  .    (index -> db)
-mcp     .  x  .  .  .  x    (mcp -> db, search)
-search  .  x  .  .  .  .    (search -> db)
-server  x  x  x  x  x  x    (server -> all)
-```
-
 ### Directory Structure
 
 ```
@@ -105,24 +202,10 @@ vestiga/
   workspace.edn              # Polylith workspace config
   deps.edn                   # Root deps with :dev, :test, :poly aliases
   build.clj                  # Uberjar + GraalVM native-image build
-
-  components/
-    config/                  # Configuration
-    db/                      # SQLite storage + FTS5
-    index/                   # Code analysis + git history
-    embed/                   # Ollama embeddings
-    search/                  # Hybrid search engine
-    mcp/                     # MCP protocol server
-
-  bases/
-    server/                  # CLI entry point
-
-  projects/
-    vestiga/                 # Deployable project (composes all bricks)
-
-  development/
-    src/dev/user.clj         # REPL convenience
-    test/vestiga/             # Shared test utilities
+  components/                # 6 components (config, db, index, embed, search, mcp)
+  bases/server/              # CLI entry point
+  projects/vestiga/          # Deployable project
+  development/               # REPL + shared test utilities
 ```
 
 ## Development
@@ -135,89 +218,54 @@ clj -M:poly test :all
 
 # Run only tests for changed bricks (CI-friendly)
 clj -M:poly test
-
-# Run tests via Kaocha (unit only, skips integration)
-clj -M:dev:test -m kaocha.runner --focus :unit
 ```
 
-### REPL
+### Running via clj (development)
 
 ```bash
-clj -M:dev
-```
-
-```clojure
-;; In the REPL
-(require '[vestiga.db.interface :as db])
-(require '[vestiga.db.interface.schema :as schema])
-
-(def conn (db/open-db ":memory:"))
-(schema/ensure-schema! conn)
-;; ... explore the API
-(db/close-db conn)
+clj -M:dev -m vestiga.server.core search "query"
+clj -M:dev -m vestiga.server.core refs my.ns/fn-name
+clj -M:dev -m vestiga.server.core index -p .
 ```
 
 ### Polylith Commands
 
 ```bash
-# Workspace overview
-clj -M:poly info
-
-# Validate workspace structure
-clj -M:poly check
-
-# Show brick dependency graph
-clj -M:poly deps
-
-# Show library usage
-clj -M:poly libs
+clj -M:poly info     # workspace overview
+clj -M:poly check    # validate workspace
+clj -M:poly deps     # brick dependency graph
+clj -M:poly libs     # library usage
 ```
 
 ## Building
 
-### Uberjar
-
 ```bash
+# Uberjar
 clj -T:build uber
-# Output: target/vestiga-0.1.0-standalone.jar
-java -jar target/vestiga-0.1.0-standalone.jar serve
-```
+java -jar target/vestiga-0.1.0-standalone.jar search "query"
 
-### GraalVM Native Image
-
-```bash
-# Requires GraalVM with native-image installed
+# GraalVM native image
 ./script/build-native.sh
-# Output: target/vestiga
-./target/vestiga serve
+./target/vestiga search "query"
 ```
 
 ## Configuration
 
-Create `.vestiga/config.edn` in your project root to override defaults:
+Create `.vestiga/config.edn` in your project root:
 
 ```clojure
-{:embed-model     "nomic-embed-text"    ;; Ollama model for embeddings
- :embed-dim       768                   ;; Embedding dimensions
+{:embed-model     "nomic-embed-text"
+ :embed-dim       768
  :ollama-base-url "http://localhost:11434"
- :index-paths     ["src" "test"]        ;; Paths to index
+ :index-paths     ["src" "test"]
  :file-extensions #{".clj" ".cljs" ".cljc" ".bb"}
- :git-max-commits 10000                 ;; Max commits to index
- :search-limit    20}                   ;; Default search result limit
+ :git-max-commits 10000
+ :search-limit    20}
 ```
 
 ## Storage
 
-All indexes are stored in a single SQLite file at `<project-root>/.vestiga/db.sqlite`. The database includes:
-
-- **chunks** - Source code split into top-level forms with symbol metadata
-- **chunks_fts** - FTS5 full-text index for BM25 search
-- **refs** - Cross-reference graph from clj-kondo var-usages
-- **ns_deps** - Namespace dependency graph
-- **commits** / **commit_files** - Git history with per-file change tracking
-- **commits_fts** - FTS5 index over commit messages
-
-Delete `.vestiga/` to reset all indexes.
+All indexes are stored in `<project-root>/.vestiga/db.sqlite`. Delete `.vestiga/` to reset.
 
 ## License
 
