@@ -3,6 +3,21 @@
     [clojure.string :as str]
     [vestiga.db.connection :as db]))
 
+(defn- sanitize-fts-query
+  "Sanitize a query string for FTS5 MATCH.
+   Replaces hyphens with spaces (hyphens mean NOT in FTS5)
+   and wraps terms in double quotes to avoid syntax errors."
+  [query-text]
+  (let [cleaned (-> query-text
+                    (str/replace #"-" " ")
+                    (str/replace #"[\"()]" "")
+                    str/trim)]
+    (if (str/blank? cleaned)
+      cleaned
+      (->> (str/split cleaned #"\s+")
+           (map #(str "\"" % "\""))
+           (str/join " ")))))
+
 (defn bm25-search
   "Search chunks using FTS5 BM25 ranking.
    Returns chunks ordered by relevance."
@@ -22,7 +37,8 @@
                   file-path  (conj "c.file_path LIKE ?"))
      where (if (seq conditions) (str " AND " (str/join " AND " conditions)) "")
      sql (str base-sql where " ORDER BY rank LIMIT ?")
-     params (cond-> [query-text]
+     fts-query (sanitize-fts-query query-text)
+     params (cond-> [fts-query]
               project-id (conj project-id)
               kinds      (into (vec kinds))
               namespace  (conj (str/replace namespace "*" "%"))
@@ -51,7 +67,8 @@
                   ["c.project_id = ?"])
      where (if (seq conditions) (str " AND " (str/join " AND " conditions)) "")
      sql (str base-sql where " ORDER BY rank LIMIT ?")
-     params (cond-> [query-text]
+     fts-query (sanitize-fts-query query-text)
+     params (cond-> [fts-query]
               file-path  (conj (str/replace file-path "*" "%"))
               project-id (conj project-id)
               true       (conj limit))]

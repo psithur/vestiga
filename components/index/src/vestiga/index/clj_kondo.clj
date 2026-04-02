@@ -53,7 +53,7 @@
    Returns {:analysis <map>} or {:error <string>}."
   [project-root paths]
   (let [lint-path  (str/join ":" paths)
-        config-str (json/write-str
+        config-str (pr-str
                      {:output   {:format :json}
                       :analysis {:arglists              true
                                  :var-definitions       {:meta true}

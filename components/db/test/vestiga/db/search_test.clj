@@ -81,6 +81,39 @@
           (is
             (= "my.util/transform" (:qualified_name (first results)))))))))
 
+(deftest test-bm25-search-with-hyphens
+  (h/with-temp-db
+    (fn [db]
+      ;; Insert a chunk with a hyphenated name
+      (let [pid (ops/upsert-project!
+                  db
+                  {:root-path "/tmp/test"
+                   :name      "test"})]
+        (ops/insert-chunk!
+          db
+          {:project-id     pid
+           :file-path      "src/schema.clj"
+           :namespace      "my.db"
+           :qualified-name "my.db/ensure-schema!"
+           :symbol-name    "ensure-schema!"
+           :kind           "defn"
+           :content        "(defn ensure-schema! [db] ...)"
+           :start-line     1
+           :end-line       3
+           :arity          nil
+           :docstring      nil
+           :file-hash      "h1"}))
+      (testing "finds hyphenated symbols (hyphen replaced with space)"
+        (let [results (search/bm25-search db "ensure-schema")]
+          (is
+            (pos? (count results)))
+          (is
+            (= "my.db/ensure-schema!" (:qualified_name (first results))))))
+      (testing "also finds with space-separated terms"
+        (let [results (search/bm25-search db "ensure schema")]
+          (is
+            (pos? (count results))))))))
+
 (deftest test-find-by-qualified-name
   (h/with-temp-db
     (fn [db]

@@ -9,57 +9,63 @@
 
 (defn- load-schema-sql "Load the schema SQL from resources." [] (slurp (io/resource "schema.sql")))
 
+(defn- split-sql-statements
+  "Split SQL script into individual statements, respecting BEGIN...END trigger blocks.
+   Returns a vector of statement strings."
+  [sql]
+  (let [lines (str/split-lines sql)]
+    (loop [remaining lines
+           current   []
+           in-block  false
+           result    []]
+      (if (empty? remaining)
+        (let [stmt (str/trim (str/join "\n" current))]
+          (if (str/blank? stmt) result (conj result stmt)))
+        (let [line    (first remaining)
+              trimmed (str/trim line)]
+          (cond
+            ;; Skip pure comment lines
+            (re-matches #"--.*" trimmed)
+            (recur (rest remaining) current in-block result)
+
+            ;; Entering a BEGIN block (trigger body)
+            (and
+              (not in-block)
+              (re-find #"(?i)\bBEGIN\b" trimmed))
+            (if (re-find #"(?i)\bEND\s*;" trimmed)
+              ;; Single-line BEGIN...END; (shouldn't happen but handle it)
+              (let [stmt (str/trim (str/join "\n" (conj current line)))]
+                (recur (rest remaining) [] false (if (str/blank? stmt) result (conj result stmt))))
+              (recur (rest remaining) (conj current line) true result))
+
+            ;; Exiting a block with END;
+            (and
+              in-block
+              (re-find #"(?i)\bEND\s*;" trimmed))
+            (let [stmt (str/trim (str/join "\n" (conj current line)))]
+              (recur (rest remaining) [] false (if (str/blank? stmt) result (conj result stmt))))
+
+            ;; Inside a block — accumulate
+            in-block
+            (recur (rest remaining) (conj current line) true result)
+
+            ;; Statement ending with semicolon (outside block)
+            (str/ends-with? trimmed ";")
+            (let [stmt (str/trim (str/join "\n" (conj current line)))]
+              (recur (rest remaining) [] false (if (str/blank? stmt) result (conj result stmt))))
+
+            ;; Accumulate continuation lines
+            :else
+            (recur (rest remaining) (conj current line) false result)))))))
+
 (defn- execute-sql-script!
-  "Execute a multi-statement SQL script.
-   Uses JDBC's execute() which handles multiple statements including triggers."
+  "Execute a multi-statement SQL script."
   [db sql]
   (let [conn ^java.sql.Connection (:conn db)
         stmt (.createStatement conn)]
-    (try
-      ;; Remove SQL comments (lines starting with --)
-      (let [cleaned (->> (str/split-lines sql)
-                         (remove #(re-matches #"\s*--.*" %))
-                         (str/join "\n"))]
-        ;; Execute each statement separated by semicolons,
-        ;; but respect BEGIN...END blocks in triggers
-        (loop [remaining (str/trim cleaned)]
-          (when (not (str/blank? remaining))
-            ;; Find the next statement end, respecting BEGIN...END
-            (let [end-pos (loop [i     0
-                                 depth 0]
-                            (if (>= i (count remaining))
-                              i
-                              (let [ch (nth remaining i)]
-                                (cond
-                                  ;; Check for BEGIN
-                                  (and
-                                    (<= (+ i 5) (count remaining))
-                                    (= "BEGIN" (str/upper-case (subs remaining i (min (+ i 5) (count remaining)))))
-                                    (or (zero? i) (Character/isWhitespace ^char (nth remaining (dec i)))))
-                                  (recur (+ i 5) (inc depth))
-
-                                  ;; Check for END
-                                  (and
-                                    (pos? depth)
-                                    (<= (+ i 3) (count remaining))
-                                    (= "END" (str/upper-case (subs remaining i (min (+ i 3) (count remaining)))))
-                                    (or (zero? i) (Character/isWhitespace ^char (nth remaining (dec i)))))
-                                  (recur (+ i 3) (dec depth))
-
-                                  ;; Semicolon at top level
-                                  (and
-                                    (= ch \;)
-                                    (zero? depth))
-                                  (inc i)
-
-                                  :else
-                                  (recur (inc i) depth)))))]
-              (when (> end-pos 0)
-                (let [stmt-text (str/trim (subs remaining 0 end-pos))]
-                  (when (not (str/blank? stmt-text))
-                    (.execute stmt stmt-text))
-                  (recur (str/trim (subs remaining end-pos)))))))))
-      (finally (.close stmt)))))
+    (try (doseq [s (split-sql-statements sql)]
+           (.execute stmt s))
+         (finally (.close stmt)))))
 
 (defn- schema-version
   "Get the current schema version, or nil if no schema exists."
