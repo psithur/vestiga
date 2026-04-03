@@ -1,6 +1,6 @@
 # vestiga
 
-Local, offline code intelligence for Clojure codebases. Indexes source code with clj-kondo, stores metadata in SQLite with FTS5, and provides hybrid BM25 search via CLI tools or MCP server.
+Local, offline code intelligence for Clojure codebases. Indexes source code with clj-kondo, stores metadata in SQLite with FTS5, and provides hybrid BM25 search via CLI tools or MCP server. Includes an AST-targeted edit engine for surgical source rewriting by qualified symbol name.
 
 ## Prerequisites
 
@@ -170,18 +170,54 @@ Or for development:
 | `impact_analysis` | `vestiga impact` |
 | `search_history` | `vestiga history` |
 | `index_project` | `vestiga index` |
+| `edit_code` | — (MCP only) |
+
+### edit_code
+
+The `edit_code` tool applies AST-targeted edits to Clojure source files. Edits target definitions by namespace-qualified name rather than by line number or text matching, eliminating transcription errors.
+
+**Operations:**
+
+| Operation | Target | Description |
+|-----------|--------|-------------|
+| `replace_form` | `my.ns/my-fn` | Replace an entire top-level form |
+| `replace_body` | `my.ns/my-fn` | Replace only the body of a single-arity defn (preserves name, arglist, docstring) |
+| `add_form_before` | `my.ns/my-fn` | Insert a new form before the target |
+| `add_form_after` | `my.ns/my-fn` | Insert a new form after the target |
+| `delete_form` | `my.ns/my-fn` | Remove a top-level form |
+| `add_require` | `clojure.string :as str` | Add a `:require` clause to the ns form (idempotent) |
+| `replace_ns` | — | Replace the entire `(ns ...)` form |
+| `append_to_ns` | `my.ns` | Append a new form at the end of the file |
+| `replace_defmethod` | `my.ns/dispatch :http` | Replace a specific defmethod by dispatch value |
+
+**Example (JSON-RPC):**
+
+```json
+{
+  "operations": [
+    {"operation": "add_require",
+     "target": "clojure.string :as str",
+     "file": "src/my/app/handler.clj"},
+    {"operation": "replace_body",
+     "target": "my.app.handler/process-request",
+     "content": "  (-> req validate transform persist!)"}
+  ]
+}
+```
+
+The engine uses [rewrite-clj](https://github.com/clj-commons/rewrite-clj) for whitespace-and-comment-preserving source rewriting. It runs fresh clj-kondo analysis on each call to resolve qualified names to file locations.
 
 ## Architecture
 
-Polylith workspace with 6 components and 1 base.
+Polylith workspace with 7 components and 1 base.
 
 ```
                   server (base)
                   |- CLI + MCP entry point
                   v
-    .------+------+------+------+------.
-    |      |      |      |      |      |
-  config   db   index  embed  search  mcp
+    .------+------+------+------+------+------.
+    |      |      |      |      |      |      |
+  config   db   index  embed  search  mcp    ast
 ```
 
 ### Components
@@ -194,6 +230,7 @@ Polylith workspace with 6 components and 1 base.
 | **embed** | EmbeddingProvider protocol, Ollama HTTP client, Ollama process lifecycle |
 | **search** | Hybrid search engine, Reciprocal Rank Fusion ranking |
 | **mcp** | MCP JSON-RPC server, tool definitions and handlers, stdio transport |
+| **ast** | AST-targeted edit engine: resolve symbols by qualified name, surgical source rewriting via rewrite-clj |
 
 ### Directory Structure
 
@@ -202,7 +239,7 @@ vestiga/
   workspace.edn              # Polylith workspace config
   deps.edn                   # Root deps with :dev, :test, :poly aliases
   build.clj                  # Uberjar + GraalVM native-image build
-  components/                # 6 components (config, db, index, embed, search, mcp)
+  components/                # 7 components (config, db, index, embed, search, mcp, ast)
   bases/server/              # CLI entry point
   projects/vestiga/          # Deployable project
   development/               # REPL + shared test utilities

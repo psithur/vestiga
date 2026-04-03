@@ -69,7 +69,48 @@
                                :full         {:type        "boolean"
                                               :description "Force full re-index (default: incremental)"
                                               :default     false}}
-                  :required   ["project_root"]}}])
+                  :required   ["project_root"]}}
+
+   {:name "edit_code"
+    :description
+    "Apply AST-targeted edits to Clojure source files. Each edit targets a
+  definition by namespace-qualified name (e.g. 'my.app.core/handle-request')
+  rather than by line number or text matching.
+
+  Operations:
+  - replace_form: replace an entire top-level form (defn, def, defprotocol, etc.)
+  - replace_body: replace only the body of a single-arity defn
+  - add_form_before / add_form_after: insert a form adjacent to a target
+  - delete_form: remove a top-level form
+  - add_require: add a :require clause to a namespace (idempotent)
+  - replace_ns: replace the entire (ns ...) form
+  - append_to_ns: add a new form at the end of a namespace's file
+  - replace_defmethod: replace a specific defmethod by dispatch value
+
+  Target format:
+  - Most ops: 'my.ns/my-fn' (namespace-qualified symbol name)
+  - replace_defmethod: 'my.ns/multi-fn :dispatch-val'
+  - add_require: require spec like 'clojure.string :as str'
+  - append_to_ns: namespace name like 'my.app.core'
+
+  Run index_project first to ensure the index is current."
+
+    :inputSchema {:type       "object"
+                  :properties {:project_root {:type        "string"
+                                              :description "Path to the project root directory"}
+                               :operations   {:type  "array"
+                                              :items {:type       "object"
+                                                      :required   ["operation"]
+                                                      :properties {:operation {:type "string"
+                                                                               :enum ["replace_form" "replace_body"
+                                                                                      "add_form_before" "add_form_after"
+                                                                                      "delete_form" "add_require"
+                                                                                      "replace_ns" "append_to_ns"
+                                                                                      "replace_defmethod"]}
+                                                                   :target    {:type "string"}
+                                                                   :content   {:type "string"}
+                                                                   :file      {:type "string"}}}}}
+                  :required   ["project_root" "operations"]}}])
 
 (defn list-tools
   []
@@ -206,6 +247,48 @@
       (boolean (:skip_embeddings args)))
     {:content [{:type "text"
                 :text (str "Indexing complete for " (:project_root args))}]}))
+
+(defn- format-edit-results
+  [result]
+  (if (:success result)
+    (str
+      "All "
+      (count (:results result))
+      " edit(s) applied successfully.\n\n"
+      (str/join
+        "\n"
+        (map-indexed
+          (fn [i r]
+            (str (inc i) ". " (get-in r [:operation :operation]) " " (get-in r [:operation :target]) " → " (:file r)))
+          (:results result))))
+    (str
+      "Edit failed.\n\n"
+      (str/join
+        "\n"
+        (map
+          (fn [r]
+            (if (= :error (:status r))
+              (str "ERROR: " (:message r))
+              (str "OK: " (get-in r [:operation :operation]) " " (get-in r [:operation :target]))))
+          (:results result))))))
+
+(defmethod call-tool "edit_code"
+  [_ args]
+  (let [project-root    (:project_root args)
+        operations      (:operations args)
+        kondo           (requiring-resolve 'vestiga.index.clj-kondo/run-analysis)
+        ;; Fresh analysis on every edit call — stale line numbers cause failures
+        analysis-result (kondo project-root ["src" "test"])
+        analysis        (:analysis analysis-result)]
+    (if-not analysis
+      {:content [{:type "text"
+                  :text (str "clj-kondo analysis failed: " (:error analysis-result))}]
+       :isError true}
+      (let [ast-apply (requiring-resolve 'vestiga.ast.interface/apply-edits!)
+            result    (ast-apply analysis project-root operations)]
+        {:content [{:type "text"
+                    :text (format-edit-results result)}]
+         :isError (not (:success result))}))))
 
 (defmethod call-tool :default
   [name _]
