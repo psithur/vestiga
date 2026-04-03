@@ -306,4 +306,6 @@ All indexes are stored in `<project-root>/.vestiga/db.sqlite`. Delete `.vestiga/
 
 ## License
 
-Copyright 2024-2026. All rights reserved.
+Copyright 2024-2026.
+
+Distributed under the [Eclipse Public License 2.0](LICENSE.md).
