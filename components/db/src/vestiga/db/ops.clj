@@ -171,3 +171,24 @@
   [db project-id]
   (:sha
     (first (db/query db "SELECT sha FROM commits WHERE project_id = ? ORDER BY timestamp DESC LIMIT 1" [project-id]))))
+
+;; -- Embeddings --------------------------------------------------------------
+
+(defn upsert-chunk-embedding!
+  "Insert or replace a chunk embedding in the vec0 table."
+  [db chunk-id embedding]
+  (when (:vec? db)
+    (let [embed-json (str "[" (clojure.string/join "," (map str embedding)) "]")]
+      (db/execute! db "INSERT OR REPLACE INTO chunk_embeddings (id, embedding) VALUES (?, ?)" [chunk-id embed-json]))))
+
+(defn get-chunks-without-embeddings
+  "Get chunk IDs that don't yet have embeddings."
+  [db project-id]
+  (when (:vec? db)
+    (db/query
+      db
+      "SELECT c.id, c.content, c.qualified_name, c.docstring
+       FROM chunks c
+       LEFT JOIN chunk_embeddings ce ON c.id = ce.id
+       WHERE c.project_id = ? AND ce.id IS NULL"
+      [project-id])))

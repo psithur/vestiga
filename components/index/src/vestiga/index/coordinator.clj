@@ -3,6 +3,9 @@
     [clojure.tools.logging :as log]
     [vestiga.db.interface :as db]
     [vestiga.db.interface.ops :as ops]
+    [vestiga.db.interface.schema :as schema]
+    [vestiga.embed.interface :as embed]
+    [vestiga.embed.interface.process :as embed-process]
     [vestiga.index.chunker :as chunker]
     [vestiga.index.clj-kondo :as kondo]
     [vestiga.index.file-tracker :as tracker]
@@ -45,6 +48,23 @@
   [db project-id ns-deps]
   (doseq [dep ns-deps]
     (ops/insert-ns-dep! db (assoc dep :project-id project-id))))
+
+(defn- embed-chunks!
+  "Generate embeddings for any chunks that don't yet have them.
+   Uses batch embedding via the given provider."
+  [db project-id provider]
+  (let [unembedded (ops/get-chunks-without-embeddings db project-id)]
+    (when (seq unembedded)
+      (log/info "Embedding" (count unembedded) "chunks")
+      (let [texts      (mapv
+                         (fn [chunk]
+                           (str (or (:qualified_name chunk) "") " " (or (:docstring chunk) "") "\n" (:content chunk)))
+                         unembedded)
+            embeddings (embed/embed-texts provider texts)]
+        (when (= (count embeddings) (count unembedded))
+          (doseq [[chunk embedding] (map vector unembedded embeddings)]
+            (ops/upsert-chunk-embedding! db (:id chunk) embedding))
+          (log/info "Embedded" (count embeddings) "chunks successfully"))))))
 
 (defn- index-git-history!
   "Index git commit history."
@@ -155,5 +175,20 @@
       (when head-sha
         (index-git-history! db project-id root-path :since-sha since-sha :max-count max-commits)
         (ops/update-project-head! db project-id head-sha)))
+
+    ;; Embed chunks if embeddings are requested and vec0 is available
+    (when (and
+            (not skip-embeddings)
+            (:vec? db))
+      (let [embed-config (or (:embed config) {})
+            model        (or (:model embed-config) "nomic-embed-text")
+            base-url     (or (:base-url embed-config) "http://localhost:11434")
+            ollama-state (embed-process/ensure-ollama! :model model :base-url base-url)]
+        (try (let [provider (embed/->ollama-provider :model model :base-url base-url)
+                   dim      (embed/embedding-dim provider)]
+               (when dim
+                 (schema/ensure-vec-tables! db dim)
+                 (embed-chunks! db project-id provider)))
+             (finally (embed-process/stop-ollama! ollama-state)))))
 
     (log/info "Indexing complete for" project-name)))

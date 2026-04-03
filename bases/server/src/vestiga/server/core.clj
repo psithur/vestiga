@@ -46,24 +46,36 @@
         (println content))
       (println))))
 
-(defn- resolve-db-path "Resolve the database path from options or default." [opts] (or (:db opts) ".vestiga/db.sqlite"))
+(defn- resolve-db-path
+  "Resolve the database path from options or default.
+   If no explicit --db is given, uses <project-root>/.vestiga/db.sqlite,
+   falling back to CWD-relative .vestiga/db.sqlite."
+  ([opts] (resolve-db-path opts nil))
+  ([opts project-root]
+   (or (:db opts)
+       (when project-root
+         (str project-root "/.vestiga/db.sqlite"))
+       ".vestiga/db.sqlite")))
 
 ;; ---------------------------------------------------------------------------
 ;; Subcommand: mcp
 ;; ---------------------------------------------------------------------------
 
 (def mcp-opts
-  [["-d" "--db PATH" "Database path" :default ".vestiga/db.sqlite"]
+  [["-p" "--project-root PATH" "Project root directory (default: current directory)" :default "."]
+   ["-d" "--db PATH" "Database path (default: <project-root>/.vestiga/db.sqlite)"]
    ["-h" "--help" "Show help"]])
 
 (defn cmd-mcp
   [{:keys [opts]}]
   ;; Suppress stderr logging — MCP clients interpret it as errors
   (System/setProperty "org.slf4j.simpleLogger.defaultLogLevel" "off")
-  (with-db-conn
-    (resolve-db-path opts)
-    (fn [db]
-      (mcp/start-server! db))))
+  (let [project-root (:project-root opts)
+        db-path      (resolve-db-path opts project-root)]
+    (with-db-conn
+      db-path
+      (fn [db]
+        (mcp/start-server! db)))))
 
 ;; ---------------------------------------------------------------------------
 ;; Subcommand: index
@@ -78,7 +90,7 @@
 (defn cmd-index
   [{:keys [opts]}]
   (let [project-root (:project-root opts)
-        db-path      (or (:db opts) (str project-root "/.vestiga/db.sqlite"))
+        db-path      (resolve-db-path opts project-root)
         config       (config/load-config)]
     (with-db-conn
       db-path

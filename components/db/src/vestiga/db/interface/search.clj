@@ -22,6 +22,10 @@
   [db project-id qualified-name]
   (impl/find-refs-to-symbol db project-id qualified-name))
 
+(defn vector-search
+  [db query-embedding & args]
+  (apply impl/vector-search db query-embedding args))
+
 (defn find-ns-dependents
   [db project-id namespace-name]
   (impl/find-ns-dependents db project-id namespace-name))

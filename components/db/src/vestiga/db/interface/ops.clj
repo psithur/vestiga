@@ -99,3 +99,13 @@
 (defn get-latest-commit-sha
   [db project-id]
   (impl/get-latest-commit-sha db project-id))
+
+;; -- Embeddings --------------------------------------------------------------
+
+(defn upsert-chunk-embedding!
+  [db chunk-id embedding]
+  (impl/upsert-chunk-embedding! db chunk-id embedding))
+
+(defn get-chunks-without-embeddings
+  [db project-id]
+  (impl/get-chunks-without-embeddings db project-id))

@@ -101,15 +101,17 @@
     (try (bind-params! ps params) (.executeUpdate ps) (finally (.close ps)))))
 
 (defn execute-returning-key!
-  "Execute a SQL INSERT and return the generated key."
+  "Execute a SQL INSERT and return the generated key.
+   Returns nil when no row was inserted (e.g. INSERT OR IGNORE with a duplicate)."
   [db sql params]
   (let [^Connection conn      (get-conn db)
         ^PreparedStatement ps (.prepareStatement conn ^String sql (int Statement/RETURN_GENERATED_KEYS))]
     (try (bind-params! ps params)
-         (.executeUpdate ps)
-         (let [^ResultSet rs (.getGeneratedKeys ps)]
-           (when (.next rs)
-             (.getLong rs (int 1))))
+         (let [affected (.executeUpdate ps)]
+           (when (pos? affected)
+             (let [^ResultSet rs (.getGeneratedKeys ps)]
+               (when (.next rs)
+                 (.getLong rs (int 1))))))
          (finally (.close ps)))))
 
 (defn- resultset->maps

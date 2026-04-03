@@ -104,6 +104,37 @@
                  WHERE r.project_id = ? AND r.to_ns = ? AND r.to_name = ?"
         [project-id ns-part name-part]))))
 
+(defn vector-search
+  "Search chunks using KNN vector similarity via sqlite-vec.
+   query-embedding: a float array or vector of floats.
+   Returns chunks ordered by distance (ascending = most similar)."
+  [db query-embedding &
+   {:keys [project-id limit kinds namespace file-path]
+    :or   {limit 20}}]
+  (when (:vec? db)
+    (let
+      [;; Convert embedding to JSON array string for vec0
+       embed-json (str "[" (str/join "," (map str query-embedding)) "]")
+       base-sql
+       "SELECT c.*, ce.distance as vec_distance
+                      FROM chunk_embeddings ce
+                      JOIN chunks c ON c.id = ce.id
+                      WHERE ce.embedding MATCH ?"
+       conditions (cond-> []
+                    project-id (conj "c.project_id = ?")
+                    kinds      (conj (str "c.kind IN (" (str/join "," (repeat (count kinds) "?")) ")"))
+                    namespace  (conj "c.namespace LIKE ?")
+                    file-path  (conj "c.file_path LIKE ?"))
+       where (if (seq conditions) (str " AND " (str/join " AND " conditions)) "")
+       sql (str base-sql where " ORDER BY ce.distance LIMIT ?")
+       params (cond-> [embed-json]
+                project-id (conj project-id)
+                kinds      (into (vec kinds))
+                namespace  (conj (str/replace namespace "*" "%"))
+                file-path  (conj (str/replace file-path "*" "%"))
+                true       (conj limit))]
+      (try (db/query db sql params) (catch Exception _ [])))))
+
 (defn find-ns-dependents
   "Find all namespaces that depend on the given namespace."
   [db project-id namespace-name]

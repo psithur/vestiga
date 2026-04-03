@@ -1,11 +1,15 @@
 (ns vestiga.search.engine
   (:require
+    [clojure.data.json :as json]
     [clojure.string :as str]
     [clojure.tools.logging :as log]
     [vestiga.db.interface :as db]
     [vestiga.db.interface.ops :as ops]
     [vestiga.db.interface.search :as db-search]
-    [vestiga.search.ranker :as ranker]))
+    [vestiga.search.ranker :as ranker])
+  (:import [java.net URI]
+           [java.net.http HttpClient HttpRequest HttpRequest$BodyPublishers HttpResponse$BodyHandlers]
+           [java.time Duration]))
 
 (defn- looks-like-qualified-name?
   "Check if query looks like a qualified Clojure name (ns/symbol)."
@@ -14,12 +18,38 @@
     (string? query)
     (re-matches #"[a-zA-Z][a-zA-Z0-9._-]*/[a-zA-Z][a-zA-Z0-9._*!?<>-]*" query)))
 
+(defn- query-embedding
+  "Get an embedding for a search query via Ollama.
+   Returns a float vector or nil on failure."
+  [query base-url model]
+  (try (let [client  (-> (HttpClient/newBuilder)
+                         (.connectTimeout (Duration/ofSeconds 10))
+                         (.build))
+             body    (json/write-str
+                       {:model model
+                        :input [query]})
+             request (-> (HttpRequest/newBuilder)
+                         (.uri (URI/create (str base-url "/api/embed")))
+                         (.header "Content-Type" "application/json")
+                         (.timeout (Duration/ofSeconds 30))
+                         (.POST (HttpRequest$BodyPublishers/ofString body))
+                         (.build))
+             resp    (.send client request (HttpResponse$BodyHandlers/ofString))]
+         (when (= 200 (.statusCode resp))
+           (let [parsed (json/read-str (.body resp) :key-fn keyword)]
+             (first (:embeddings parsed)))))
+       (catch Exception e (log/debug "Failed to get query embedding:" (.getMessage e)) nil)))
+
 (defn search
-  "Hybrid search across code and optionally git history."
+  "Hybrid search across code and optionally git history.
+   When vec0 is available and Ollama is running, includes vector similarity results
+   fused with BM25 via Reciprocal Rank Fusion."
   [db query &
-   {:keys [limit kinds namespace file-path include-history project-id]
+   {:keys [limit kinds namespace file-path include-history project-id embed-model embed-base-url]
     :or   {limit           20
-           include-history false}}]
+           include-history false
+           embed-model     "nomic-embed-text"
+           embed-base-url  "http://localhost:11434"}}]
   (let [;; 1. BM25 text search
         bm25-results       (try (db-search/bm25-search
                                   db
@@ -40,13 +70,33 @@
         structural-results (when (looks-like-qualified-name? query)
                              (db-search/find-by-qualified-name db query))
 
+        ;; 3. Vector search (if vec0 available)
+        vector-results     (when (:vec? db)
+                             (when-let [embedding (query-embedding query embed-base-url embed-model)]
+                               (try (db-search/vector-search
+                                      db
+                                      embedding
+                                      :project-id
+                                      project-id
+                                      :limit
+                                      limit
+                                      :kinds
+                                      kinds
+                                      :namespace
+                                      namespace
+                                      :file-path
+                                      file-path)
+                                    (catch Exception e (log/debug "Vector search failed:" (.getMessage e)) nil))))
+
         ;; Combine results - use RRF if we have multiple sources
         bm25-with-id       (mapv #(assoc % :id (:id %)) bm25-results)
         structural-with-id (mapv #(assoc % :id (:id %)) (or structural-results []))
+        vector-with-id     (mapv #(assoc % :id (:id %)) (or vector-results []))
 
         result-lists       (cond-> []
                              (seq bm25-with-id)       (conj bm25-with-id)
-                             (seq structural-with-id) (conj structural-with-id))
+                             (seq structural-with-id) (conj structural-with-id)
+                             (seq vector-with-id)     (conj vector-with-id))
 
         fused              (if (> (count result-lists) 1)
                              (take limit (ranker/reciprocal-rank-fusion result-lists))

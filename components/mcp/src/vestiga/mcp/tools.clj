@@ -197,7 +197,13 @@
 (defmethod call-tool "index_project"
   [_ args]
   (let [coordinator (requiring-resolve 'vestiga.index.interface/index-project!)]
-    (coordinator *db* (:project_root args) :full (boolean (:full args)))
+    (coordinator
+      *db*
+      (:project_root args)
+      :full
+      (boolean (:full args))
+      :skip-embeddings
+      (boolean (:skip_embeddings args)))
     {:content [{:type "text"
                 :text (str "Indexing complete for " (:project_root args))}]}))
 
