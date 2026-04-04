@@ -74,6 +74,34 @@
               true       (conj limit))]
     (db/query db sql params)))
 
+(defn search-patches
+  "Search diff content in commit file patches using FTS5.
+   Returns commit info joined with the matching file path and patch snippet."
+  [db query-text &
+   {:keys [project-id limit file-path]
+    :or   {limit 20}}]
+  (let
+    [base-sql
+     "SELECT c.sha, c.author, c.timestamp, c.message,
+                         cf.file_path, cf.change_type, cf.lines_added, cf.lines_removed,
+                         snippet(commit_patches_fts, 1, '>>>', '<<<', '...', 40) as patch_snippet,
+                         bm25(commit_patches_fts) as rank
+                  FROM commit_patches_fts pfts
+                  JOIN commit_files cf ON cf.id = pfts.rowid
+                  JOIN commits c ON c.id = cf.commit_id
+                  WHERE commit_patches_fts MATCH ?"
+     conditions (cond-> []
+                  project-id (conj "c.project_id = ?")
+                  file-path  (conj "cf.file_path LIKE ?"))
+     where (if (seq conditions) (str " AND " (str/join " AND " conditions)) "")
+     sql (str base-sql where " ORDER BY rank LIMIT ?")
+     fts-query (sanitize-fts-query query-text)
+     params (cond-> [fts-query]
+              project-id (conj project-id)
+              file-path  (conj (str/replace file-path "*" "%"))
+              true       (conj limit))]
+    (try (db/query db sql params) (catch Exception _ []))))
+
 (defn find-by-qualified-name
   "Exact lookup by qualified name."
   [db qualified-name]

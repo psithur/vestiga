@@ -145,13 +145,13 @@
     [project-id sha author timestamp message]))
 
 (defn insert-commit-file!
-  "Insert a commit-file association."
-  [db {:keys [commit-id file-path change-type lines-added lines-removed]}]
+  "Insert a commit-file association with optional patch diff."
+  [db {:keys [commit-id file-path change-type lines-added lines-removed patch]}]
   (db/execute!
     db
-    "INSERT INTO commit_files (commit_id, file_path, change_type, lines_added, lines_removed)
-                VALUES (?, ?, ?, ?, ?)"
-    [commit-id file-path change-type lines-added lines-removed]))
+    "INSERT INTO commit_files (commit_id, file_path, change_type, lines_added, lines_removed, patch)
+                VALUES (?, ?, ?, ?, ?, ?)"
+    [commit-id file-path change-type lines-added lines-removed patch]))
 
 (defn get-commits-for-file
   "Get recent commits touching a file."

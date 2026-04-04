@@ -224,16 +224,37 @@
 
 (defmethod call-tool "search_history"
   [_ args]
-  (let [results (db-search/search-commits *db* (:query args) :limit (or (:limit args) 20) :file-path (:file_path args))]
+  (let [limit        (or (:limit args) 20)
+        file-path    (:file_path args)
+        msg-results  (db-search/search-commits *db* (:query args) :limit limit :file-path file-path)
+        diff-results (db-search/search-patches *db* (:query args) :limit limit :file-path file-path)
+        msg-text     (when (seq msg-results)
+                       (str
+                         "## Commits (message match)\n\n"
+                         (str/join "\n" (map #(str (:sha %) " | " (:author %) " | " (:message %)) msg-results))))
+        diff-text    (when (seq diff-results)
+                       (str
+                         "## Commits (diff match)\n\n"
+                         (str/join
+                           "\n\n"
+                           (map
+                             #(str
+                                (:sha %)
+                                " | "
+                                (:author %)
+                                " | "
+                                (:message %)
+                                "\n  "
+                                (:file_path %)
+                                " ["
+                                (:change_type %)
+                                "]"
+                                "\n  "
+                                (:patch_snippet %))
+                             diff-results))))
+        combined     (str/join "\n\n" (remove nil? [msg-text diff-text]))]
     {:content [{:type "text"
-                :text (if (empty? results)
-                        "No matching commits found."
-                        (str/join
-                          "\n\n"
-                          (map
-                            (fn [c]
-                              (str (:sha c) " | " (:author c) " | " (:message c)))
-                            results)))}]}))
+                :text (if (str/blank? combined) "No matching commits found." combined)}]}))
 
 (defmethod call-tool "index_project"
   [_ args]

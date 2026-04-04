@@ -89,7 +89,8 @@
                :file-path     (:path file)
                :change-type   (:change-type file)
                :lines-added   (:lines-added file)
-               :lines-removed (:lines-removed file)})))))))
+               :lines-removed (:lines-removed file)
+               :patch         (:patch file)})))))))
 
 (defn index-project!
   "Index a project: run kondo analysis, chunk files, store in DB.

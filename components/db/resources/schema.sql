@@ -162,11 +162,33 @@ CREATE TABLE IF NOT EXISTS commit_files (
   file_path TEXT NOT NULL,
   change_type TEXT NOT NULL,            -- A, M, D, R
   lines_added INTEGER,
-  lines_removed INTEGER
+  lines_removed INTEGER,
+  patch TEXT                            -- unified diff for this file in this commit
 );
 
 CREATE INDEX IF NOT EXISTS idx_commit_files_commit ON commit_files(commit_id);
 CREATE INDEX IF NOT EXISTS idx_commit_files_path ON commit_files(file_path);
+
+-- FTS for searching diff content
+CREATE VIRTUAL TABLE IF NOT EXISTS commit_patches_fts USING fts5(
+  file_path,
+  patch,
+  content='commit_files',
+  content_rowid='id',
+  tokenize='porter unicode61'
+);
+
+CREATE TRIGGER IF NOT EXISTS commit_files_ai AFTER INSERT ON commit_files
+WHEN new.patch IS NOT NULL BEGIN
+  INSERT INTO commit_patches_fts(rowid, file_path, patch)
+  VALUES (new.id, new.file_path, new.patch);
+END;
+
+CREATE TRIGGER IF NOT EXISTS commit_files_ad AFTER DELETE ON commit_files
+WHEN old.patch IS NOT NULL BEGIN
+  INSERT INTO commit_patches_fts(commit_patches_fts, rowid, file_path, patch)
+  VALUES ('delete', old.id, old.file_path, old.patch);
+END;
 
 -- ------------------------------------------------------------
 -- Vector embeddings (sqlite-vec)

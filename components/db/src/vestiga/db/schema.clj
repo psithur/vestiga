@@ -5,7 +5,32 @@
     [clojure.tools.logging :as log]
     [vestiga.db.connection :as db]))
 
-(def current-version 1)
+(def current-version 2)
+
+(def ^:private migrations
+  "Ordered migrations. Each is [from-version sql-string]."
+  [[1
+    "ALTER TABLE commit_files ADD COLUMN patch TEXT;
+
+CREATE VIRTUAL TABLE IF NOT EXISTS commit_patches_fts USING fts5(
+  file_path,
+  patch,
+  content='commit_files',
+  content_rowid='id',
+  tokenize='porter unicode61'
+);
+
+CREATE TRIGGER IF NOT EXISTS commit_files_ai AFTER INSERT ON commit_files
+WHEN new.patch IS NOT NULL BEGIN
+  INSERT INTO commit_patches_fts(rowid, file_path, patch)
+  VALUES (new.id, new.file_path, new.patch);
+END;
+
+CREATE TRIGGER IF NOT EXISTS commit_files_ad AFTER DELETE ON commit_files
+WHEN old.patch IS NOT NULL BEGIN
+  INSERT INTO commit_patches_fts(commit_patches_fts, rowid, file_path, patch)
+  VALUES ('delete', old.id, old.file_path, old.patch);
+END;"]])
 
 (defn- load-schema-sql "Load the schema SQL from resources." [] (slurp (io/resource "schema.sql")))
 
@@ -75,22 +100,34 @@
            (:version (first rows))))
        (catch Exception _ nil)))
 
+(defn- apply-migrations!
+  "Apply incremental migrations from the current version to target."
+  [db from-version]
+  (doseq [[from-ver sql] migrations
+          :when (>= from-ver from-version)]
+    (log/info "Applying migration from version" from-ver "to" (inc from-ver))
+    (execute-sql-script! db sql)))
+
 (defn ensure-schema!
   "Apply the database schema if needed.
    Creates all tables, indexes, triggers, and FTS tables.
    Idempotent — safe to call on every startup."
   [db]
   (let [version (schema-version db)]
-    (when (or (nil? version) (< version current-version))
-      (log/info
-        "Applying schema version"
-        current-version
-        (if version (str "(upgrading from " version ")") "(fresh install)"))
-      (let [sql (load-schema-sql)]
-        (execute-sql-script! db sql)
-        ;; Record the schema version
-        (db/execute! db "INSERT OR REPLACE INTO schema_version (version) VALUES (?)" [current-version])
-        (log/info "Schema version" current-version "applied successfully")))))
+    (cond
+      ;; Fresh install — apply full schema
+      (nil? version)
+      (do (log/info "Applying schema version" current-version "(fresh install)")
+          (execute-sql-script! db (load-schema-sql))
+          (db/execute! db "INSERT OR REPLACE INTO schema_version (version) VALUES (?)" [current-version])
+          (log/info "Schema version" current-version "applied successfully"))
+
+      ;; Needs migration
+      (< version current-version)
+      (do (log/info "Applying schema version" current-version (str "(upgrading from " version ")"))
+          (apply-migrations! db version)
+          (db/execute! db "INSERT OR REPLACE INTO schema_version (version) VALUES (?)" [current-version])
+          (log/info "Schema version" current-version "applied successfully")))))
 
 (defn ensure-vec-tables!
   "Create vector embedding tables if sqlite-vec is available."

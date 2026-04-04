@@ -250,11 +250,25 @@
     (with-db-conn
       (resolve-db-path opts)
       (fn [db]
-        (let [results (db-search/search-commits db query :limit (:limit opts) :file-path (:file opts))]
-          (if (empty? results)
-            (println "No matching commits found.")
-            (doseq [c results]
-              (println (format "%s | %s | %s" (:sha c) (:author c) (:message c))))))))))
+        (let [msg-results  (db-search/search-commits db query :limit (:limit opts) :file-path (:file opts))
+              diff-results (db-search/search-patches db query :limit (:limit opts) :file-path (:file opts))]
+          (when (seq msg-results)
+            (println "## Commits (message match)\n")
+            (doseq [c msg-results]
+              (println (format "%s | %s | %s" (:sha c) (:author c) (:message c)))))
+          (when (seq diff-results)
+            (when (seq msg-results)
+              (println))
+            (println "## Commits (diff match)\n")
+            (doseq [c diff-results]
+              (println (format "%s | %s | %s" (:sha c) (:author c) (:message c)))
+              (println (format "  %s [%s]" (:file_path c) (:change_type c)))
+              (println (format "  %s" (:patch_snippet c)))
+              (println)))
+          (when (and
+                  (empty? msg-results)
+                  (empty? diff-results))
+            (println "No matching commits found.")))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Top-level dispatch

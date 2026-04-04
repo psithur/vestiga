@@ -30,66 +30,101 @@
   (when-let [output (run-git project-root "diff" "--name-only" (str since-sha "..HEAD"))]
     (vec (remove str/blank? (str/split-lines output)))))
 
-(defn- parse-numstat-line
-  "Parse a --numstat line: 'added\tremoved\tpath'"
-  [line]
-  (let [parts (str/split line #"\t")]
-    (when (= (count parts) 3)
-      (let [added   (first parts)
-            removed (second parts)
-            path    (nth parts 2)]
-        {:path          path
-         :lines-added   (when (not= added "-")
-                          (parse-long added))
-         :lines-removed (when (not= removed "-")
-                          (parse-long removed))}))))
+(defn- count-diff-lines
+  "Count added/removed lines from a unified diff patch string."
+  [patch]
+  (let [lines (str/split-lines patch)]
+    {:lines-added   (count
+                      (filter
+                        #(and
+                           (str/starts-with? % "+")
+                           (not (str/starts-with? % "+++"))
+                           (not (str/starts-with? % "+++")))
+                        lines))
+     :lines-removed (count
+                      (filter
+                        #(and
+                           (str/starts-with? % "-")
+                           (not (str/starts-with? % "---")))
+                        lines))}))
 
-(defn- parse-git-log
-  "Parse git log output with --format and --numstat."
+(defn- extract-change-type
+  "Determine change type from diff header lines."
+  [patch]
+  (cond
+    (str/includes? patch "new file mode")
+    "A"
+    (str/includes? patch "deleted file mode")
+    "D"
+    (str/includes? patch "rename from")
+    "R"
+    :else
+    "M"))
+
+(defn- extract-file-path
+  "Extract file path from a 'diff --git a/path b/path' line."
+  [diff-header]
+  (when-let [m (re-find #"diff --git a/(.+?) b/(.+)" diff-header)]
+    (nth m 2)))
+
+(defn- split-into-file-diffs
+  "Split a commit's patch output into per-file diffs.
+   Returns a vector of {:path :patch :change-type :lines-added :lines-removed}."
+  [patch-text]
+  (when (and
+          patch-text
+          (not (str/blank? patch-text)))
+    (let [;; Split on "diff --git" boundaries, keeping the delimiter
+          parts (str/split patch-text #"(?=diff --git )")]
+      (->> parts
+           (remove str/blank?)
+           (mapv
+             (fn [file-diff]
+               (let [path   (extract-file-path (first (str/split-lines file-diff)))
+                     counts (count-diff-lines file-diff)]
+                 (when path
+                   (merge
+                     {:path        path
+                      :patch       (str/trim file-diff)
+                      :change-type (extract-change-type file-diff)}
+                     counts)))))
+           (filterv some?)))))
+
+(defn- parse-git-log-with-patches
+  "Parse git log output with --format and -p (patch output).
+   Splits output by COMMIT: markers, then splits each commit's
+   diff section into per-file patches."
   [output]
   (when output
-    (let [lines (str/split-lines output)]
-      (loop [remaining lines
-             commits   (transient [])
-             current   nil]
-        (if (empty? remaining)
-          (persistent! (if current (conj! commits current) commits))
-          (let [line (first remaining)]
-            (cond
-              ;; Commit header line: SHA|author|timestamp|message
-              (str/starts-with? line "COMMIT:")
-              (let [parts      (str/split (subs line 7) #"\|" 4)
-                    new-commit {:sha       (nth parts 0)
-                                :author    (nth parts 1)
-                                :timestamp (parse-long (nth parts 2))
-                                :message   (nth parts 3)
-                                :files     []}]
-                (recur (rest remaining) (if current (conj! commits current) commits) new-commit))
-
-              ;; Numstat line
-              (and
-                current
-                (not (str/blank? line)))
-              (let [parsed (parse-numstat-line line)]
-                (if parsed
-                  (recur (rest remaining) commits (update current :files conj (assoc parsed :change-type "M")))
-                  (recur (rest remaining) commits current)))
-
-              ;; Blank line
-              :else
-              (recur (rest remaining) commits current))))))))
+    (let [;; Split on COMMIT: markers
+          parts (str/split output #"(?=COMMIT:)")]
+      (->> parts
+           (remove str/blank?)
+           (mapv
+             (fn [part]
+               (let [lines      (str/split-lines part)
+                     header     (first lines)
+                     hparts     (str/split (subs header 7) #"\|" 4)
+                     rest-text  (str/join "\n" (rest lines))
+                     file-diffs (split-into-file-diffs rest-text)]
+                 {:sha       (nth hparts 0)
+                  :author    (nth hparts 1)
+                  :timestamp (parse-long (nth hparts 2))
+                  :message   (nth hparts 3)
+                  :files     (or file-diffs [])})))))))
 
 (defn git-log
-  "Extract commit history from git log.
-   Returns a vector of commit maps with :sha, :author, :timestamp, :message, :files."
+  "Extract commit history from git log with per-file diffs.
+   Returns a vector of commit maps with :sha, :author, :timestamp, :message, :files.
+   Each file has :path, :change-type, :lines-added, :lines-removed, :patch."
   [project-root & {:keys [since-sha max-count paths]}]
   (let [format-str "COMMIT:%H|%an|%at|%s"
-        args       (cond-> ["log" (str "--format=" format-str) "--numstat" "--diff-filter=ADMR"]
+        args       (cond-> ["log" (str "--format=" format-str) "-p" "--diff-filter=ADMR"]
                      since-sha (conj (str since-sha "..HEAD"))
                      max-count (conj (str "-n" max-count))
                      paths     (into (cons "--" paths)))]
     (when-let [output (apply run-git project-root args)]
-      (parse-git-log output))))
+      (parse-git-log-with-patches output))))
 
 (defn git-diff-stat
   "Get changed files between two SHAs with change type."

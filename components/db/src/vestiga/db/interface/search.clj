@@ -26,6 +26,10 @@
   [db query-embedding & args]
   (apply impl/vector-search db query-embedding args))
 
+(defn search-patches
+  [db query-text & args]
+  (apply impl/search-patches db query-text args))
+
 (defn find-ns-dependents
   [db project-id namespace-name]
   (impl/find-ns-dependents db project-id namespace-name))
