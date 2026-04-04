@@ -69,25 +69,38 @@
   (let [already-running? (ollama-running? base-url)
         process (when-not already-running?
                   (log/info "Starting Ollama serve...")
-                  (proc/process
-                    ["ollama" "serve"]
-                    {:out      :write
-                     :err      :write
-                     :shutdown :destroy}))]
-    ;; Wait for Ollama to be ready
-    (when-not already-running?
-      (loop [retries 0]
-        (when (< retries max-retries)
-          (if (ollama-running? base-url) (log/info "Ollama is ready") (do (Thread/sleep 1000) (recur (inc retries)))))))
+                  (try (proc/process
+                         ["ollama" "serve"]
+                         {:out      :write
+                          :err      :write
+                          :shutdown :destroy})
+                       (catch java.io.IOException e
+                         (log/warn "Ollama binary not found — skipping embeddings:" (.getMessage e))
+                         nil)))]
+    (if (and
+          (not already-running?)
+          (nil? process))
+      ;; Binary not found — return immediately, caller should skip embeddings
+      {:process  nil
+       :model    model
+       :base-url base-url}
+      (do
+        ;; Wait for Ollama to be ready
+        (when-not already-running?
+          (loop [retries 0]
+            (when (< retries max-retries)
+              (if (ollama-running? base-url)
+                (log/info "Ollama is ready")
+                (do (Thread/sleep 1000) (recur (inc retries)))))))
 
-    ;; Check/pull model
-    (when (ollama-running? base-url)
-      (when-not (model-available? base-url model) (pull-model! base-url model)))
+        ;; Check/pull model
+        (when (ollama-running? base-url)
+          (when-not (model-available? base-url model) (pull-model! base-url model)))
 
-    {:process  (when process
-                 (:proc process))
-     :model    model
-     :base-url base-url}))
+        {:process  (when process
+                     (:proc process))
+         :model    model
+         :base-url base-url}))))
 
 (defn stop-ollama!
   "Stop an Ollama process we started (not one that was pre-existing).

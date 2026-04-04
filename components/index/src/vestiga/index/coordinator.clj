@@ -210,11 +210,13 @@
             model        (or (:model embed-config) "nomic-embed-text")
             base-url     (or (:base-url embed-config) "http://localhost:11434")
             ollama-state (embed-process/ensure-ollama! :model model :base-url base-url)]
-        (try (let [provider (embed/->ollama-provider :model model :base-url base-url)
-                   dim      (embed/embedding-dim provider)]
-               (when dim
-                 (schema/ensure-vec-tables! db dim)
-                 (embed-chunks! db project-id provider)))
-             (finally (embed-process/stop-ollama! ollama-state)))))
+        (if (embed-process/ollama-running? base-url)
+          (try (let [provider (embed/->ollama-provider :model model :base-url base-url)
+                     dim      (embed/embedding-dim provider)]
+                 (when dim
+                   (schema/ensure-vec-tables! db dim)
+                   (embed-chunks! db project-id provider)))
+               (finally (embed-process/stop-ollama! ollama-state)))
+          (log/warn "Ollama not available — skipping embeddings"))))
 
     (log/info "Indexing complete for" project-name)))
