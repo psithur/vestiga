@@ -50,47 +50,86 @@
   (doseq [dep ns-deps]
     (ops/insert-ns-dep! db (assoc dep :project-id project-id))))
 
+(def ^:private max-embed-chars
+  "Max characters per text sent to the embedding model.
+   nomic-embed-text has a 2048 token context window; ~3 chars/token gives ~6000 chars."
+  6000)
+
+(defn- truncate-for-embedding
+  "Truncate text to fit the embedding model's context window."
+  [text]
+  (if (> (count text) max-embed-chars) (subs text 0 max-embed-chars) text))
+
 (defn- embed-chunks!
   "Generate embeddings for any chunks that don't yet have them.
-   Uses batch embedding via the given provider."
+   Uses batch embedding via the given provider.
+   Truncates long chunks and skips batches that fail."
   [db project-id provider]
   (let [unembedded (ops/get-chunks-without-embeddings db project-id)]
     (when (seq unembedded)
       (log/info "Embedding" (count unembedded) "chunks")
       (let [texts      (mapv
                          (fn [chunk]
-                           (str (or (:qualified_name chunk) "") " " (or (:docstring chunk) "") "\n" (:content chunk)))
+                           (truncate-for-embedding
+                             (str
+                               (or (:qualified_name chunk) "")
+                               " "
+                               (or (:docstring chunk) "")
+                               "\n"
+                               (:content chunk))))
                          unembedded)
-            embeddings (embed/embed-texts provider texts)]
-        (when (= (count embeddings) (count unembedded))
+            embeddings (embed/embed-texts provider texts)
+            embedded   (count embeddings)]
+        (when (pos? embedded)
+          ;; embed-texts may return fewer results if batches failed — pair what we have
           (doseq [[chunk embedding] (map vector unembedded embeddings)]
             (ops/upsert-chunk-embedding! db (:id chunk) embedding))
-          (log/info "Embedded" (count embeddings) "chunks successfully"))))))
+          (log/info "Embedded" embedded "of" (count unembedded) "chunks"))))))
+
+(def ^:private patch-commit-limit
+  "Max number of recent commits to fetch full patches for.
+   Older commits get metadata only (numstat). Keeps indexing fast on large repos."
+  500)
 
 (defn- index-git-history!
-  "Index git commit history."
+  "Index git commit history.
+   Uses --numstat for all commits (fast), then fetches full patches
+   for the most recent commits up to patch-commit-limit."
   [db project-id project-root & {:keys [since-sha max-count]}]
   (let [commits (git/git-log project-root :since-sha since-sha :max-count max-count)]
-    (when commits
+    (when (seq commits)
       (log/info "Indexing" (count commits) "git commits")
-      (doseq [commit commits]
-        (when-let [commit-id
-                   (ops/insert-commit!
-                     db
-                     {:project-id project-id
-                      :sha        (:sha commit)
-                      :author     (:author commit)
-                      :timestamp  (:timestamp commit)
-                      :message    (:message commit)})]
-          (doseq [file (:files commit)]
-            (ops/insert-commit-file!
-              db
-              {:commit-id     commit-id
-               :file-path     (:path file)
-               :change-type   (:change-type file)
-               :lines-added   (:lines-added file)
-               :lines-removed (:lines-removed file)
-               :patch         (:patch file)})))))))
+      ;; Fetch patches for the most recent N commits only
+      (let [recent-shas (into #{} (map :sha) (take patch-commit-limit commits))]
+        (doseq [commit commits]
+          (when-let [commit-id
+                     (ops/insert-commit!
+                       db
+                       {:project-id project-id
+                        :sha        (:sha commit)
+                        :author     (:author commit)
+                        :timestamp  (:timestamp commit)
+                        :message    (:message commit)})]
+            ;; Fetch patches for recent commits individually
+            (let [files-with-patches (if (recent-shas (:sha commit))
+                                       (let [patches   (git/get-commit-patches project-root (:sha commit))
+                                             patch-map (into {} (map (juxt :path identity) patches))]
+                                         (mapv
+                                           (fn [f]
+                                             (if-let [p (get patch-map (:path f))]
+                                               (assoc f :patch (:patch p))
+                                               f))
+                                           (:files commit)))
+                                       (:files commit))]
+              (doseq [file files-with-patches]
+                (ops/insert-commit-file!
+                  db
+                  {:commit-id     commit-id
+                   :file-path     (:path file)
+                   :change-type   (:change-type file)
+                   :lines-added   (:lines-added file)
+                   :lines-removed (:lines-removed file)
+                   :patch         (:patch file)})))))))))
 
 (defn index-project!
   "Index a project: run kondo analysis, chunk files, store in DB.
