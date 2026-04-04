@@ -71,8 +71,9 @@
                   (log/info "Starting Ollama serve...")
                   (proc/process
                     ["ollama" "serve"]
-                    {:out :inherit
-                     :err :inherit}))]
+                    {:out      :write
+                     :err      :write
+                     :shutdown :destroy}))]
     ;; Wait for Ollama to be ready
     (when-not already-running?
       (loop [retries 0]
