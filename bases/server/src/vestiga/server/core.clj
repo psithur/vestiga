@@ -18,6 +18,8 @@
 ;; Shared helpers
 ;; ---------------------------------------------------------------------------
 
+(declare guided-setup!)
+
 (defn- which
   "Check if a binary is on PATH. Returns true if found."
   [binary]
@@ -46,6 +48,17 @@
       (when-let [content (:content r)]
         (println content))
       (println))))
+
+(defn- prompt-yn
+  "Prompt with a yes/no question. default is :yes or :no."
+  [question default]
+  (let [hint (if (= default :yes) "[Y/n]" "[y/N]")]
+    (print (str question " " hint " "))
+    (flush)
+    (let [input (str/trim (or (read-line) ""))]
+      (if (str/blank? input) (= default :yes) (boolean (#{"y" "yes"} (str/lower-case input)))))))
+
+(defn- fresh-db? "Check if the database file exists." [db-path] (not (.exists (java.io.File. ^String db-path))))
 
 (defn- resolve-db-path
   "Resolve the database path from options or default.
@@ -92,12 +105,15 @@
   [{:keys [opts]}]
   (let [project-root (:project-root opts)
         db-path      (resolve-db-path opts project-root)
-        config       (config/load-config)]
+        config       (config/load-config)
+        first-run?   (fresh-db? db-path)]
     (with-db-conn
       db-path
       (fn [db]
-        (index/index-project! db project-root :config config :full (:full opts))))
-    (println "Indexing complete.")))
+        (if first-run?
+          (guided-setup! db project-root config)
+          (do (index/index-project! db project-root :config config :full (:full opts))
+              (println "Indexing complete.")))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Subcommand: search
@@ -304,6 +320,28 @@
                     (or (:total_removed r) "-"))))))))))
 
 ;; ---------------------------------------------------------------------------
+;; Shared embedding helper
+;; ---------------------------------------------------------------------------
+
+(defn- with-ollama-provider
+  "If vec0 is available, ensure ollama is running and call (f provider dim).
+   Handles lifecycle. No-op if vec0 or ollama unavailable."
+  [db f]
+  (when (:vec? db)
+    (let [ensure!  (requiring-resolve 'vestiga.embed.interface.process/ensure-ollama!)
+          running? (requiring-resolve 'vestiga.embed.interface.process/ollama-running?)
+          stop!    (requiring-resolve 'vestiga.embed.interface.process/stop-ollama!)
+          base-url "http://localhost:11434"
+          state    (ensure! :base-url base-url)]
+      (when (running? base-url)
+        (try (let [provider ((requiring-resolve 'vestiga.embed.interface/->ollama-provider) :base-url base-url)
+                   dim      ((requiring-resolve 'vestiga.embed.interface/embedding-dim) provider)]
+               (when dim
+                 (schema/ensure-vec-tables! db dim)
+                 (f provider dim)))
+             (finally (stop! state)))))))
+
+;; ---------------------------------------------------------------------------
 ;; Conversation indexing
 ;; ---------------------------------------------------------------------------
 
@@ -315,6 +353,79 @@
       (println (str "Found " (count sessions) " conversation session(s) for " project-root))
       (conversation/index-conversations! db project-root)
       (println "Conversation indexing complete."))))
+
+;; ---------------------------------------------------------------------------
+;; Guided first-run setup
+;; ---------------------------------------------------------------------------
+
+(defn- guided-setup!
+  "Interactive first-run setup. Asks the user what to index and does it all."
+  [db project-root config]
+  (println)
+  (println "Welcome to vestiga! This looks like a fresh index.")
+  (println (str "Project: " (.getCanonicalPath (java.io.File. ^String project-root))))
+  (println)
+
+  ;; 1. Gather preferences before doing work
+  (let [sessions       (conversation/find-sessions project-root)
+        all-projects   (conversation/find-all-sessions)
+        total-sessions (reduce + 0 (map #(count (:sessions %)) all-projects))
+        has-ollama?    (and
+                         (:vec? db)
+                         (which "ollama"))
+
+        conv-choice    (cond
+                         (> (count all-projects) 1)
+                         (do (when (seq sessions)
+                               (println (str "Found " (count sessions) " conversation session(s) for this project.")))
+                             (println
+                               (str
+                                 "Found "
+                                 (count all-projects)
+                                 " projects with "
+                                 total-sessions
+                                 " total sessions in ~/.claude/projects/."))
+                             (if (prompt-yn "Index conversation history from all projects?" :yes)
+                               :all
+                               (when (seq sessions)
+                                 (when (prompt-yn "Index conversations for this project only?" :yes)
+                                   :project))))
+
+                         (seq sessions)
+                         (do (println (str "Found " (count sessions) " conversation session(s) for this project."))
+                             (when (prompt-yn "Index conversation history?" :yes)
+                               :project)))
+
+        embed?         (when has-ollama?
+                         (prompt-yn
+                           "Generate semantic embeddings via Ollama? (enables fuzzy/natural language search)"
+                           :yes))]
+
+    ;; 2. Index code (with or without embeddings)
+    (println)
+    (println "Indexing source code...")
+    (index/index-project! db project-root :config config :skip-embeddings (not embed?))
+
+    ;; 3. Index conversations
+    (case conv-choice
+      :all     (do (println (str "Indexing conversations from " (count all-projects) " projects..."))
+                   (conversation/index-all-conversations! db))
+      :project (do (println "Indexing conversations for this project...")
+                   (conversation/index-conversations! db project-root))
+      nil)
+
+    ;; 4. Embed conversation messages (code embeddings handled by index-project! above)
+    (when (and
+            embed?
+            conv-choice)
+      (with-ollama-provider
+        db
+        (fn [provider _dim]
+          (println "Embedding conversation messages...")
+          (conversation/embed-conversations! db provider)))))
+
+  (println)
+  (println "Setup complete! You can now use: vestiga search, vestiga conversation-search, etc."))
 
 ;; ---------------------------------------------------------------------------
 ;; Subcommand: conversations (list sessions)
@@ -341,21 +452,10 @@
                 (conversation/index-all-conversations! db)
                 (println "Done."))
             (index-conversations! db project-root))
-          ;; Embed conversation messages if vec0 available and ollama running
-          (when (:vec? db)
-            (let [embed-process (requiring-resolve 'vestiga.embed.interface.process/ensure-ollama!)
-                  embed-stop    (requiring-resolve 'vestiga.embed.interface.process/ollama-running?)
-                  base-url      "http://localhost:11434"
-                  state         (embed-process :base-url base-url)]
-              (when (embed-stop base-url)
-                (let [embed-new    (requiring-resolve 'vestiga.embed.interface/->ollama-provider)
-                      embed-dim-fn (requiring-resolve 'vestiga.embed.interface/embedding-dim)
-                      provider     (embed-new :base-url base-url)
-                      dim          (embed-dim-fn provider)]
-                  (when dim
-                    (schema/ensure-vec-tables! db dim)
-                    (conversation/embed-conversations! db provider)))
-                ((requiring-resolve 'vestiga.embed.interface.process/stop-ollama!) state)))))
+          (with-ollama-provider
+            db
+            (fn [provider _dim]
+              (conversation/embed-conversations! db provider))))
         (let [sessions (db-search/list-conversation-sessions db :limit (:limit opts))]
           (if (empty? sessions)
             (println "No conversation sessions found. Run with --index to index conversations first.")
