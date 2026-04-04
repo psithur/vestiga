@@ -27,7 +27,8 @@
   "Find all JSONL session files for a given project root.
    Returns a seq of maps: {:file <File>, :session-id <string>}."
   [project-root]
-  (let [encoded  (encode-project-path project-root)
+  (let [abs-path (.getCanonicalPath (io/file project-root))
+        encoded  (encode-project-path abs-path)
         proj-dir (io/file (claude-code-dir) encoded)]
     (when (.isDirectory proj-dir)
       (->> (.listFiles proj-dir)
