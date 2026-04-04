@@ -126,6 +126,11 @@
   "Transform clj-kondo var-usages into reference records."
   [analysis]
   (->> (:var-usages analysis)
+       (filter
+         #(and
+            (:from %)
+            (:to %)
+            (:name %)))
        (mapv
          (fn [vu]
            {:from-ns   (name (:from vu))
