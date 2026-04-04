@@ -277,8 +277,10 @@
   (let [project-root    (:project_root args)
         operations      (:operations args)
         kondo           (requiring-resolve 'vestiga.index.clj-kondo/run-analysis)
+        discover        (requiring-resolve 'vestiga.config.interface/discover-index-paths)
+        index-paths     (discover project-root)
         ;; Fresh analysis on every edit call — stale line numbers cause failures
-        analysis-result (kondo project-root ["src" "test"])
+        analysis-result (kondo project-root index-paths)
         analysis        (:analysis analysis-result)]
     (if-not analysis
       {:content [{:type "text"
