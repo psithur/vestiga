@@ -284,3 +284,27 @@
        LEFT JOIN chunk_embeddings ce ON c.id = ce.id
        WHERE c.project_id = ? AND ce.id IS NULL"
       [project-id])))
+
+;; -- Conversation Embeddings ------------------------------------------------
+
+(defn upsert-conversation-message-embedding!
+  "Insert or replace a conversation message embedding."
+  [db message-id embedding]
+  (when (:vec? db)
+    (let [embed-json (str "[" (clojure.string/join "," (map str embedding)) "]")]
+      (db/execute!
+        db
+        "INSERT OR REPLACE INTO conversation_message_embeddings (id, embedding) VALUES (?, ?)"
+        [message-id embed-json]))))
+
+(defn get-conversation-messages-without-embeddings
+  "Get conversation messages that don't yet have embeddings."
+  [db]
+  (when (:vec? db)
+    (db/query
+      db
+      "SELECT cm.id, cm.content_text, cm.role
+       FROM conversation_messages cm
+       LEFT JOIN conversation_message_embeddings cme ON cm.id = cme.id
+       WHERE cme.id IS NULL AND cm.content_text != ''"
+      [])))

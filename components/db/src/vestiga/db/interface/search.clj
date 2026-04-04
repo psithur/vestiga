@@ -44,6 +44,10 @@
   [db query-text & args]
   (apply impl/search-conversations db query-text args))
 
+(defn vector-search-conversations
+  [db query-embedding & args]
+  (apply impl/vector-search-conversations db query-embedding args))
+
 (defn list-conversation-sessions
   [db & args]
   (apply impl/list-conversation-sessions db args))

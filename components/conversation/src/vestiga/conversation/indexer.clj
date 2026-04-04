@@ -1,9 +1,15 @@
 (ns vestiga.conversation.indexer
   "Orchestrates indexing of Claude Code conversation sessions into the DB."
   (:require
+    [clojure.tools.logging :as log]
     [vestiga.conversation.claude-code :as claude-code]
     [vestiga.conversation.discovery :as discovery]
-    [vestiga.db.interface.ops :as ops]))
+    [vestiga.db.interface.ops :as ops]
+    [vestiga.embed.interface :as embed]))
+
+(def ^:private max-embed-chars "Max characters to send for a single embedding." 8000)
+
+(defn- truncate-for-embedding [text] (if (> (count text) max-embed-chars) (subs text 0 max-embed-chars) text))
 
 (defn- index-sessions!
   "Index a seq of {:file, :session-id} maps for a given project-path."
@@ -53,6 +59,21 @@
                :cost-usd       (:conversation/cost-usd msg)
                :tool-names     (:conversation/tool-names msg)
                :is-sidechain   (:conversation/is-sidechain msg)})))))))
+
+(defn embed-conversations!
+  "Generate embeddings for conversation messages that don't yet have them.
+   Uses batch embedding via the given provider."
+  [db provider]
+  (let [unembedded (ops/get-conversation-messages-without-embeddings db)]
+    (when (seq unembedded)
+      (log/info "Embedding" (count unembedded) "conversation messages")
+      (let [texts      (mapv #(truncate-for-embedding (:content_text %)) unembedded)
+            embeddings (embed/embed-texts provider texts)
+            embedded   (count embeddings)]
+        (when (pos? embedded)
+          (doseq [[msg embedding] (map vector unembedded embeddings)]
+            (ops/upsert-conversation-message-embedding! db (:id msg) embedding))
+          (log/info "Embedded" embedded "of" (count unembedded) "conversation messages"))))))
 
 (defn index-conversations!
   "Index Claude Code conversation sessions for a project into the DB."

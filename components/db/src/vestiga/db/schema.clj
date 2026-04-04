@@ -216,5 +216,14 @@ END;"]])
                dim
                "])")
              [])
+           (db/execute!
+             db
+             (str
+               "CREATE VIRTUAL TABLE IF NOT EXISTS conversation_message_embeddings USING vec0("
+               "id INTEGER PRIMARY KEY, "
+               "embedding float["
+               dim
+               "])")
+             [])
            (log/info "Vector embedding tables created with dimension" dim)
            (catch Exception e (log/warn "Failed to create vector tables:" (.getMessage e)))))))

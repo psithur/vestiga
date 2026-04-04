@@ -143,3 +143,11 @@
 (defn get-chunks-without-embeddings
   [db project-id]
   (impl/get-chunks-without-embeddings db project-id))
+
+(defn upsert-conversation-message-embedding!
+  [db message-id embedding]
+  (impl/upsert-conversation-message-embedding! db message-id embedding))
+
+(defn get-conversation-messages-without-embeddings
+  [db]
+  (impl/get-conversation-messages-without-embeddings db))

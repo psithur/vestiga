@@ -104,6 +104,38 @@
 
     (vec fused)))
 
+(defn search-conversations
+  "Hybrid search across conversation messages.
+   Fuses BM25 text search with vector similarity via RRF when vec0 is available."
+  [db query &
+   {:keys [limit role tool-name embed-model embed-base-url]
+    :or   {limit          20
+           embed-model    "nomic-embed-text"
+           embed-base-url "http://localhost:11434"}}]
+  (let [bm25-results   (try (db-search/search-conversations db query :limit limit :role role :tool-name tool-name)
+                            (catch Exception _ []))
+        vector-results (when (:vec? db)
+                         (when-let [embedding (query-embedding query embed-base-url embed-model)]
+                           (try (db-search/vector-search-conversations
+                                  db
+                                  embedding
+                                  :limit
+                                  limit
+                                  :role
+                                  role
+                                  :tool-name
+                                  tool-name)
+                                (catch Exception _ nil))))
+        bm25-with-id   (mapv #(assoc % :id (:id %)) bm25-results)
+        vector-with-id (mapv #(assoc % :id (:id %)) (or vector-results []))
+        result-lists   (cond-> []
+                         (seq bm25-with-id)   (conj bm25-with-id)
+                         (seq vector-with-id) (conj vector-with-id))
+        fused          (if (> (count result-lists) 1)
+                         (take limit (ranker/reciprocal-rank-fusion result-lists))
+                         (take limit (or (first result-lists) [])))]
+    (vec fused)))
+
 (defn find-references
   "Find all references to a symbol. Structural query via refs table."
   [db qualified-name & {:keys [project-id]}]

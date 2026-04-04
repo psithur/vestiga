@@ -340,7 +340,22 @@
             (do (println "Indexing all Claude Code conversations...")
                 (conversation/index-all-conversations! db)
                 (println "Done."))
-            (index-conversations! db project-root)))
+            (index-conversations! db project-root))
+          ;; Embed conversation messages if vec0 available and ollama running
+          (when (:vec? db)
+            (let [embed-process (requiring-resolve 'vestiga.embed.interface.process/ensure-ollama!)
+                  embed-stop    (requiring-resolve 'vestiga.embed.interface.process/ollama-running?)
+                  base-url      "http://localhost:11434"
+                  state         (embed-process :base-url base-url)]
+              (when (embed-stop base-url)
+                (let [embed-new    (requiring-resolve 'vestiga.embed.interface/->ollama-provider)
+                      embed-dim-fn (requiring-resolve 'vestiga.embed.interface/embedding-dim)
+                      provider     (embed-new :base-url base-url)
+                      dim          (embed-dim-fn provider)]
+                  (when dim
+                    (schema/ensure-vec-tables! db dim)
+                    (conversation/embed-conversations! db provider)))
+                ((requiring-resolve 'vestiga.embed.interface.process/stop-ollama!) state)))))
         (let [sessions (db-search/list-conversation-sessions db :limit (:limit opts))]
           (if (empty? sessions)
             (println "No conversation sessions found. Run with --index to index conversations first.")
@@ -424,7 +439,7 @@
       db-path
       (fn [db]
         (let [results
-              (db-search/search-conversations db query :limit (:limit opts) :role (:role opts) :tool-name (:tool opts))]
+              (search/search-conversations db query :limit (:limit opts) :role (:role opts) :tool-name (:tool opts))]
           (if (empty? results)
             (println "No matching conversation messages found.")
             (doseq [r results]

@@ -66,3 +66,8 @@
   "Index all Claude Code conversation sessions across every project."
   [db]
   (indexer/index-all-conversations! db))
+
+(defn embed-conversations!
+  "Generate embeddings for conversation messages that don't yet have them."
+  [db provider]
+  (indexer/embed-conversations! db provider))

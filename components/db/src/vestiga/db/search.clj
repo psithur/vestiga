@@ -192,6 +192,33 @@
               true      (conj limit))]
     (try (db/query db sql params) (catch Exception _ []))))
 
+(defn vector-search-conversations
+  "Search conversation messages using KNN vector similarity.
+   Returns messages ordered by distance (ascending = most similar)."
+  [db query-embedding &
+   {:keys [limit role tool-name]
+    :or   {limit 20}}]
+  (when (:vec? db)
+    (let
+      [embed-json (str "[" (str/join "," (map str query-embedding)) "]")
+       base-sql
+       "SELECT cm.*, cs.session_id, cs.title, cs.project_path, cs.provider,
+                  cme.distance as vec_distance
+           FROM conversation_message_embeddings cme
+           JOIN conversation_messages cm ON cm.id = cme.id
+           JOIN conversation_sessions cs ON cs.id = cm.session_row_id
+           WHERE cme.embedding MATCH ?"
+       conditions (cond-> []
+                    role      (conj "cm.role = ?")
+                    tool-name (conj "cm.tool_names LIKE ?"))
+       where (if (seq conditions) (str " AND " (str/join " AND " conditions)) "")
+       sql (str base-sql where " ORDER BY cme.distance LIMIT ?")
+       params (cond-> [embed-json]
+                role      (conj role)
+                tool-name (conj (str "%" tool-name "%"))
+                true      (conj limit))]
+      (try (db/query db sql params) (catch Exception _ [])))))
+
 (defn list-conversation-sessions
   "List conversation sessions, newest first."
   [db &

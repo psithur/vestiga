@@ -17,3 +17,7 @@
 (defn impact-analysis
   [db qualified-name & opts]
   (apply engine/impact-analysis db qualified-name opts))
+
+(defn search-conversations
+  [db query & opts]
+  (apply engine/search-conversations db query opts))

@@ -419,7 +419,7 @@ Useful for finding past discussions about a topic, recalling what was decided, o
 (defmethod call-tool "search_conversations"
   [_ args]
   (ensure-conversations-indexed!)
-  (let [results (db-search/search-conversations
+  (let [results (search/search-conversations
                   *db*
                   (:query args)
                   :limit
