@@ -4,6 +4,7 @@
     [clojure.tools.cli :as cli]
     [clojure.tools.logging :as log]
     [vestiga.config.interface :as config]
+    [vestiga.conversation.interface :as conversation]
     [vestiga.db.interface :as db]
     [vestiga.db.interface.ops :as ops]
     [vestiga.db.interface.schema :as schema]
@@ -303,34 +304,175 @@
                     (or (:total_removed r) "-"))))))))))
 
 ;; ---------------------------------------------------------------------------
+;; Conversation indexing
+;; ---------------------------------------------------------------------------
+
+(defn- index-conversations!
+  "Index Claude Code conversation sessions for a project into the DB."
+  [db project-root]
+  (let [sessions (conversation/find-sessions project-root)]
+    (when (seq sessions)
+      (println (str "Found " (count sessions) " conversation session(s) for " project-root))
+      (conversation/index-conversations! db project-root)
+      (println "Conversation indexing complete."))))
+
+;; ---------------------------------------------------------------------------
+;; Subcommand: conversations (list sessions)
+;; ---------------------------------------------------------------------------
+
+(def conversations-opts
+  [["-p" "--project-root PATH" "Project root directory" :default "."]
+   ["-d" "--db PATH" "Database path"]
+   ["-l" "--limit N" "Max sessions" :default 20 :parse-fn parse-long]
+   ["-i" "--index" "Index conversations before listing"]
+   ["-h" "--help" "Show help"]])
+
+(defn cmd-conversations
+  [{:keys [opts]}]
+  (let [project-root (:project-root opts)
+        db-path      (resolve-db-path opts project-root)]
+    (with-db-conn
+      db-path
+      (fn [db]
+        (when (:index opts)
+          (index-conversations! db project-root))
+        (let [sessions (db-search/list-conversation-sessions db :limit (:limit opts))]
+          (if (empty? sessions)
+            (println "No conversation sessions found. Run with --index to index conversations first.")
+            (do (println (format "%-38s %-20s %6s %8s  %s" "SESSION-ID" "DATE" "MSGS" "COST" "TITLE"))
+                (println (apply str (repeat 100 "-")))
+                (doseq [s sessions]
+                  (println
+                    (format
+                      "%-38s %-20s %6d %8s  %s"
+                      (:session_id s)
+                      (if (:started_at s) (str (java.time.Instant/ofEpochMilli (:started_at s))) "?")
+                      (or (:message_count s) 0)
+                      (if (and
+                            (:total_cost_usd s)
+                            (pos? (:total_cost_usd s)))
+                        (format "$%.2f" (:total_cost_usd s))
+                        "-")
+                      (or (:title s) "(untitled)")))))))))))
+
+;; ---------------------------------------------------------------------------
+;; Subcommand: conversation (view single session)
+;; ---------------------------------------------------------------------------
+
+(def conversation-opts
+  [["-d" "--db PATH" "Database path"]
+   ["-p" "--project-root PATH" "Project root directory" :default "."]
+   ["-r" "--role ROLE" "Filter by role (user/assistant)"]
+   ["-h" "--help" "Show help"]])
+
+(defn cmd-conversation
+  [{:keys [opts args]}]
+  (when (empty? args)
+    (println "Usage: vestiga conversation [opts] <session-id>")
+    (System/exit 1))
+  (let [session-id (first args)
+        db-path    (resolve-db-path opts (:project-root opts))]
+    (with-db-conn
+      db-path
+      (fn [db]
+        (let [session (ops/get-conversation-session-by-session-id db session-id)]
+          (if-not session
+            (println "Session not found:" session-id)
+            (let [messages (ops/get-conversation-messages db (:id session) :role (:role opts))]
+              (println (str "Session: " (:session_id session)))
+              (println (str "Title:   " (or (:title session) "(untitled)")))
+              (println (str "Project: " (or (:project_path session) "?")))
+              (println (str "Messages: " (:message_count session)))
+              (println)
+              (doseq [m messages]
+                (println
+                  (format
+                    "--- [%s] %s %s ---"
+                    (str/upper-case (or (:role m) "?"))
+                    (if (:timestamp m) (str (java.time.Instant/ofEpochMilli (:timestamp m))) "?")
+                    (if (:model m) (str "(" (:model m) ")") "")))
+                (println (:content_text m))
+                (when (:tool_names m)
+                  (println (str "  Tools: " (:tool_names m))))
+                (println)))))))))
+
+;; ---------------------------------------------------------------------------
+;; Subcommand: conversation-search
+;; ---------------------------------------------------------------------------
+
+(def conversation-search-opts
+  [["-d" "--db PATH" "Database path"]
+   ["-p" "--project-root PATH" "Project root directory" :default "."]
+   ["-l" "--limit N" "Max results" :default 20 :parse-fn parse-long]
+   ["-r" "--role ROLE" "Filter by role (user/assistant)"]
+   ["-t" "--tool TOOL" "Filter by tool name"]
+   ["-h" "--help" "Show help"]])
+
+(defn cmd-conversation-search
+  [{:keys [opts args]}]
+  (when (empty? args)
+    (println "Usage: vestiga conversation-search [opts] <query>")
+    (System/exit 1))
+  (let [query   (str/join " " args)
+        db-path (resolve-db-path opts (:project-root opts))]
+    (with-db-conn
+      db-path
+      (fn [db]
+        (let [results
+              (db-search/search-conversations db query :limit (:limit opts) :role (:role opts) :tool-name (:tool opts))]
+          (if (empty? results)
+            (println "No matching conversation messages found.")
+            (doseq [r results]
+              (println
+                (format
+                  "[%s] %s | %s | %s"
+                  (or (:role r) "?")
+                  (or (:title r) "(untitled)")
+                  (or (:session_id r) "?")
+                  (if (:timestamp r) (str (java.time.Instant/ofEpochMilli (:timestamp r))) "?")))
+              (println (str "  " (or (:content_snippet r) "")))
+              (when (:tool_names r)
+                (println (str "  Tools: " (:tool_names r))))
+              (println))))))))
+
+;; ---------------------------------------------------------------------------
 ;; Top-level dispatch
 ;; ---------------------------------------------------------------------------
 
 (def subcommands
-  {"mcp"      {:fn   cmd-mcp
-               :opts mcp-opts
-               :desc "Start the MCP JSON-RPC server (for AI tool integration)"}
-   "index"    {:fn   cmd-index
-               :opts index-opts
-               :desc "Index a project for searching"}
-   "search"   {:fn   cmd-search
-               :opts search-opts
-               :desc "Search indexed code"}
-   "refs"     {:fn   cmd-refs
-               :opts refs-opts
-               :desc "Find all references to a symbol"}
-   "deps"     {:fn   cmd-deps
-               :opts deps-opts
-               :desc "Find all namespaces that depend on a namespace"}
-   "impact"   {:fn   cmd-impact
-               :opts impact-opts
-               :desc "Analyse impact of changing a symbol"}
-   "history"  {:fn   cmd-history
-               :opts history-opts
-               :desc "Search git commit history"}
-   "hotspots" {:fn   cmd-hotspots
-               :opts hotspots-opts
-               :desc "Find most frequently changed files"}})
+  {"mcp"                 {:fn   cmd-mcp
+                          :opts mcp-opts
+                          :desc "Start the MCP JSON-RPC server (for AI tool integration)"}
+   "index"               {:fn   cmd-index
+                          :opts index-opts
+                          :desc "Index a project for searching"}
+   "search"              {:fn   cmd-search
+                          :opts search-opts
+                          :desc "Search indexed code"}
+   "refs"                {:fn   cmd-refs
+                          :opts refs-opts
+                          :desc "Find all references to a symbol"}
+   "deps"                {:fn   cmd-deps
+                          :opts deps-opts
+                          :desc "Find all namespaces that depend on a namespace"}
+   "impact"              {:fn   cmd-impact
+                          :opts impact-opts
+                          :desc "Analyse impact of changing a symbol"}
+   "history"             {:fn   cmd-history
+                          :opts history-opts
+                          :desc "Search git commit history"}
+   "hotspots"            {:fn   cmd-hotspots
+                          :opts hotspots-opts
+                          :desc "Find most frequently changed files"}
+   "conversations"       {:fn   cmd-conversations
+                          :opts conversations-opts
+                          :desc "List indexed conversation sessions"}
+   "conversation"        {:fn   cmd-conversation
+                          :opts conversation-opts
+                          :desc "View a single conversation session"}
+   "conversation-search" {:fn   cmd-conversation-search
+                          :opts conversation-search-opts
+                          :desc "Search across conversation history"}})
 
 (defn- print-usage
   []

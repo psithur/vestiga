@@ -100,6 +100,40 @@
   [db project-id]
   (impl/get-latest-commit-sha db project-id))
 
+;; -- Conversation Sources ----------------------------------------------------
+
+(defn upsert-conversation-source!
+  [db source-map]
+  (impl/upsert-conversation-source! db source-map))
+
+(defn get-conversation-source
+  [db source-path]
+  (impl/get-conversation-source db source-path))
+
+(defn delete-conversation-source!
+  [db source-path]
+  (impl/delete-conversation-source! db source-path))
+
+;; -- Conversation Sessions ---------------------------------------------------
+
+(defn upsert-conversation-session!
+  [db session-map]
+  (impl/upsert-conversation-session! db session-map))
+
+(defn get-conversation-session-by-session-id
+  [db session-id]
+  (impl/get-conversation-session-by-session-id db session-id))
+
+;; -- Conversation Messages ---------------------------------------------------
+
+(defn insert-conversation-message!
+  [db msg-map]
+  (impl/insert-conversation-message! db msg-map))
+
+(defn get-conversation-messages
+  [db session-row-id & args]
+  (apply impl/get-conversation-messages db session-row-id args))
+
 ;; -- Embeddings --------------------------------------------------------------
 
 (defn upsert-chunk-embedding!

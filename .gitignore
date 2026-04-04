@@ -1,0 +1,6 @@
+TODO.md
+.vestiga/
+.cpcache/
+.direnv/
+target/
+.clj-kondo/.cache/

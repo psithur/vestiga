@@ -126,7 +126,31 @@
                                                                    :target    {:type "string"}
                                                                    :content   {:type "string"}
                                                                    :file      {:type "string"}}}}}
-                  :required   ["project_root" "operations"]}}])
+                  :required   ["project_root" "operations"]}}
+
+   {:name "search_conversations"
+    :description
+    "Search across Claude Code conversation history. Returns matching messages with session context.
+Useful for finding past discussions about a topic, recalling what was decided, or finding tool usage patterns."
+
+    :inputSchema {:type       "object"
+                  :properties {:query {:type        "string"
+                                       :description "Search query for conversation content"}
+                               :limit {:type        "integer"
+                                       :description "Max results (default 20)"
+                                       :default     20}
+                               :role  {:type        "string"
+                                       :description "Filter by role: user or assistant"}
+                               :tool  {:type        "string"
+                                       :description "Filter by tool name used (e.g. Read, Bash, Edit)"}}
+                  :required   ["query"]}}
+
+   {:name        "list_conversations"
+    :description "List recent Claude Code conversation sessions with metadata (title, message count, cost, date)."
+    :inputSchema {:type       "object"
+                  :properties {:limit {:type        "integer"
+                                       :description "Max sessions to return (default 20)"
+                                       :default     20}}}}])
 
 (defn list-tools
   []
@@ -332,6 +356,87 @@
         {:content [{:type "text"
                     :text (format-edit-results result)}]
          :isError (not (:success result))}))))
+
+(defn- ensure-conversations-indexed!
+  "Index conversation history for the current project if project root is known."
+  []
+  (when (and
+          *db*
+          *project-root*)
+    (try (let [index! (requiring-resolve 'vestiga.conversation.interface/index-conversations!)]
+           (index! *db* *project-root*))
+         (catch Exception e
+           (let [log-warn (requiring-resolve 'clojure.tools.logging/warn)]
+             (log-warn "Conversation index failed:" (.getMessage e)))))))
+
+(defn- format-conversation-results
+  [results]
+  (if (empty? results)
+    "No matching conversation messages found."
+    (str/join
+      "\n\n---\n\n"
+      (map
+        (fn [r]
+          (str
+            "["
+            (or (:role r) "?")
+            "] "
+            (or (:title r) "(untitled)")
+            " | "
+            (or (:session_id r) "?")
+            "\n"
+            (when (:timestamp r)
+              (str (java.time.Instant/ofEpochMilli (:timestamp r)) "\n"))
+            (or (:content_snippet r) "")
+            (when (:tool_names r)
+              (str "\nTools: " (:tool_names r)))))
+        results))))
+
+(defn- format-conversation-sessions
+  [sessions]
+  (if (empty? sessions)
+    "No conversation sessions found."
+    (str/join
+      "\n"
+      (map
+        (fn [s]
+          (str
+            (:session_id s)
+            " | "
+            (when (:started_at s)
+              (str (java.time.Instant/ofEpochMilli (:started_at s))))
+            " | "
+            (or (:message_count s) 0)
+            " msgs"
+            (when (and
+                    (:total_cost_usd s)
+                    (pos? (:total_cost_usd s)))
+              (str " | $" (format "%.2f" (double (:total_cost_usd s)))))
+            " | "
+            (or (:title s) "(untitled)")))
+        sessions))))
+
+(defmethod call-tool "search_conversations"
+  [_ args]
+  (ensure-conversations-indexed!)
+  (let [results (db-search/search-conversations
+                  *db*
+                  (:query args)
+                  :limit
+                  (or (:limit args) 20)
+                  :role
+                  (:role args)
+                  :tool-name
+                  (:tool args))]
+    {:content [{:type "text"
+                :text (format-conversation-results results)}]}))
+
+(defmethod call-tool "list_conversations"
+  [_ args]
+  (ensure-conversations-indexed!)
+  (let [sessions (db-search/list-conversation-sessions *db* :limit (or (:limit args) 20))]
+    {:content [{:type "text"
+                :text (format-conversation-sessions sessions)}]}))
 
 (defmethod call-tool :default
   [name _]

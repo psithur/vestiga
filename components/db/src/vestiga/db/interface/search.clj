@@ -37,3 +37,13 @@
 (defn hotspots
   [db & args]
   (apply impl/hotspots db args))
+
+;; -- Conversations -----------------------------------------------------------
+
+(defn search-conversations
+  [db query-text & args]
+  (apply impl/search-conversations db query-text args))
+
+(defn list-conversation-sessions
+  [db & args]
+  (apply impl/list-conversation-sessions db args))

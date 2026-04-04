@@ -163,6 +163,46 @@
                 true       (conj limit))]
       (try (db/query db sql params) (catch Exception _ [])))))
 
+;; -- Conversation Search -----------------------------------------------------
+
+(defn search-conversations
+  "Search conversation messages using FTS5.
+   Returns matching messages with session context."
+  [db query-text &
+   {:keys [limit role tool-name]
+    :or   {limit 20}}]
+  (let
+    [base-sql
+     "SELECT cm.*, cs.session_id, cs.title, cs.project_path, cs.provider,
+                snippet(conversation_messages_fts, 0, '>>>', '<<<', '...', 40) as content_snippet,
+                bm25(conversation_messages_fts) as rank
+         FROM conversation_messages_fts fts
+         JOIN conversation_messages cm ON cm.id = fts.rowid
+         JOIN conversation_sessions cs ON cs.id = cm.session_row_id
+         WHERE conversation_messages_fts MATCH ?"
+     conditions (cond-> []
+                  role      (conj "cm.role = ?")
+                  tool-name (conj "cm.tool_names LIKE ?"))
+     where (if (seq conditions) (str " AND " (str/join " AND " conditions)) "")
+     sql (str base-sql where " ORDER BY rank LIMIT ?")
+     fts-query (sanitize-fts-query query-text)
+     params (cond-> [fts-query]
+              role      (conj role)
+              tool-name (conj (str "%" tool-name "%"))
+              true      (conj limit))]
+    (try (db/query db sql params) (catch Exception _ []))))
+
+(defn list-conversation-sessions
+  "List conversation sessions, newest first."
+  [db &
+   {:keys [limit provider]
+    :or   {limit 20}}]
+  (let [base-sql "SELECT * FROM conversation_sessions"
+        where    (if provider " WHERE provider = ?" "")
+        sql      (str base-sql where " ORDER BY started_at DESC LIMIT ?")
+        params   (if provider [provider limit] [limit])]
+    (db/query db sql params)))
+
 (defn find-ns-dependents
   "Find all namespaces that depend on the given namespace."
   [db project-id namespace-name]

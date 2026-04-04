@@ -191,6 +191,82 @@ WHEN old.patch IS NOT NULL BEGIN
 END;
 
 -- ------------------------------------------------------------
+-- Conversation sources (for incremental indexing)
+-- ------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS conversation_sources (
+  id INTEGER PRIMARY KEY,
+  source_path TEXT NOT NULL UNIQUE,
+  provider TEXT NOT NULL DEFAULT 'claude-code',
+  project_path TEXT,
+  last_line_count INTEGER DEFAULT 0,
+  last_modified_at TEXT
+);
+
+-- ------------------------------------------------------------
+-- Conversation sessions
+-- ------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS conversation_sessions (
+  id INTEGER PRIMARY KEY,
+  source_id INTEGER NOT NULL REFERENCES conversation_sources(id) ON DELETE CASCADE,
+  session_id TEXT NOT NULL,
+  provider TEXT NOT NULL DEFAULT 'claude-code',
+  project_path TEXT,
+  title TEXT,
+  started_at INTEGER,
+  ended_at INTEGER,
+  message_count INTEGER DEFAULT 0,
+  total_tokens_in INTEGER DEFAULT 0,
+  total_tokens_out INTEGER DEFAULT 0,
+  total_cost_usd REAL DEFAULT 0,
+
+  UNIQUE(source_id, session_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_conv_sessions_started ON conversation_sessions(started_at DESC);
+
+-- ------------------------------------------------------------
+-- Conversation messages
+-- ------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS conversation_messages (
+  id INTEGER PRIMARY KEY,
+  session_row_id INTEGER NOT NULL REFERENCES conversation_sessions(id) ON DELETE CASCADE,
+  message_id TEXT NOT NULL,
+  role TEXT NOT NULL,
+  content_text TEXT NOT NULL,
+  model TEXT,
+  timestamp INTEGER NOT NULL,
+  tokens_in INTEGER,
+  tokens_out INTEGER,
+  cost_usd REAL,
+  tool_names TEXT,
+  is_sidechain INTEGER DEFAULT 0,
+
+  UNIQUE(session_row_id, message_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_conv_messages_session ON conversation_messages(session_row_id);
+CREATE INDEX IF NOT EXISTS idx_conv_messages_ts ON conversation_messages(timestamp);
+
+-- FTS5 for conversation message search
+CREATE VIRTUAL TABLE IF NOT EXISTS conversation_messages_fts USING fts5(
+  content_text,
+  tool_names,
+  content='conversation_messages',
+  content_rowid='id',
+  tokenize='porter unicode61'
+);
+
+CREATE TRIGGER IF NOT EXISTS conv_msg_ai AFTER INSERT ON conversation_messages BEGIN
+  INSERT INTO conversation_messages_fts(rowid, content_text, tool_names)
+  VALUES (new.id, new.content_text, new.tool_names);
+END;
+
+CREATE TRIGGER IF NOT EXISTS conv_msg_ad AFTER DELETE ON conversation_messages BEGIN
+  INSERT INTO conversation_messages_fts(conversation_messages_fts, rowid, content_text, tool_names)
+  VALUES ('delete', old.id, old.content_text, old.tool_names);
+END;
+
+-- ------------------------------------------------------------
 -- Vector embeddings (sqlite-vec)
 -- Loaded conditionally — if vec0 extension is available
 -- ------------------------------------------------------------

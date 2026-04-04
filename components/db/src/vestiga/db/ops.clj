@@ -172,6 +172,98 @@
   (:sha
     (first (db/query db "SELECT sha FROM commits WHERE project_id = ? ORDER BY timestamp DESC LIMIT 1" [project-id]))))
 
+;; -- Conversation Sources ----------------------------------------------------
+
+(defn upsert-conversation-source!
+  "Insert or update a conversation source. Returns the source id."
+  [db {:keys [source-path provider project-path last-line-count]}]
+  (let [existing (db/query db "SELECT id FROM conversation_sources WHERE source_path = ?" [source-path])]
+    (if (seq existing)
+      (do
+        (db/execute!
+          db
+          "UPDATE conversation_sources SET last_line_count = ?, last_modified_at = datetime('now') WHERE source_path = ?"
+          [(or last-line-count 0) source-path])
+        (:id (first existing)))
+      (db/execute-returning-key!
+        db
+        "INSERT INTO conversation_sources (source_path, provider, project_path, last_line_count, last_modified_at)
+         VALUES (?, ?, ?, ?, datetime('now'))"
+        [source-path (or provider "claude-code") project-path (or last-line-count 0)]))))
+
+(defn get-conversation-source
+  "Get a conversation source by path."
+  [db source-path]
+  (first (db/query db "SELECT * FROM conversation_sources WHERE source_path = ?" [source-path])))
+
+(defn delete-conversation-source!
+  "Delete a conversation source (cascades to sessions and messages)."
+  [db source-path]
+  (db/execute! db "DELETE FROM conversation_sources WHERE source_path = ?" [source-path]))
+
+;; -- Conversation Sessions ---------------------------------------------------
+
+(defn upsert-conversation-session!
+  "Insert or update a conversation session. Returns the session row id."
+  [db
+   {:keys [source-id session-id provider project-path title started-at ended-at message-count total-tokens-in
+           total-tokens-out total-cost-usd]}]
+  (let [existing (db/query
+                   db
+                   "SELECT id FROM conversation_sessions WHERE source_id = ? AND session_id = ?"
+                   [source-id session-id])]
+    (if (seq existing)
+      (do
+        (db/execute!
+          db
+          "UPDATE conversation_sessions
+             SET title = ?, message_count = ?, total_tokens_in = ?, total_tokens_out = ?,
+                 total_cost_usd = ?, ended_at = ?
+             WHERE source_id = ? AND session_id = ?"
+          [title message-count (or total-tokens-in 0) (or total-tokens-out 0) (or total-cost-usd 0) ended-at source-id
+           session-id])
+        (:id (first existing)))
+      (db/execute-returning-key!
+        db
+        "INSERT INTO conversation_sessions
+         (source_id, session_id, provider, project_path, title,
+          started_at, ended_at, message_count, total_tokens_in, total_tokens_out, total_cost_usd)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+        [source-id session-id (or provider "claude-code") project-path title started-at ended-at (or message-count 0)
+         (or total-tokens-in 0) (or total-tokens-out 0) (or total-cost-usd 0)]))))
+
+(defn get-conversation-session-by-session-id
+  "Get a conversation session by its session UUID."
+  [db session-id]
+  (first (db/query db "SELECT * FROM conversation_sessions WHERE session_id = ?" [session-id])))
+
+;; -- Conversation Messages ---------------------------------------------------
+
+(defn insert-conversation-message!
+  "Insert a conversation message."
+  [db
+   {:keys [session-row-id message-id role content-text model timestamp tokens-in tokens-out cost-usd tool-names
+           is-sidechain]}]
+  (db/execute!
+    db
+    "INSERT OR IGNORE INTO conversation_messages
+     (session_row_id, message_id, role, content_text, model, timestamp,
+      tokens_in, tokens_out, cost_usd, tool_names, is_sidechain)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+    [session-row-id message-id role content-text model timestamp tokens-in tokens-out cost-usd
+     (when (seq tool-names)
+       (clojure.string/join "," tool-names)) (if is-sidechain 1 0)]))
+
+(defn get-conversation-messages
+  "Get all messages for a session, ordered by timestamp."
+  [db session-row-id & {:keys [role]}]
+  (if role
+    (db/query
+      db
+      "SELECT * FROM conversation_messages WHERE session_row_id = ? AND role = ? ORDER BY timestamp"
+      [session-row-id role])
+    (db/query db "SELECT * FROM conversation_messages WHERE session_row_id = ? ORDER BY timestamp" [session-row-id])))
+
 ;; -- Embeddings --------------------------------------------------------------
 
 (defn upsert-chunk-embedding!

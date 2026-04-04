@@ -1,6 +1,6 @@
 # vestiga
 
-Local, offline code intelligence for Clojure codebases. Indexes source code with clj-kondo, stores metadata in SQLite with FTS5, and provides hybrid BM25 search via CLI tools or MCP server. Includes an AST-targeted edit engine for surgical source rewriting by qualified symbol name.
+Local, offline code intelligence for Clojure codebases. Indexes source code with clj-kondo, stores metadata in SQLite with FTS5, and provides hybrid BM25 search via CLI tools or MCP server. Includes an AST-targeted edit engine for surgical source rewriting by qualified symbol name, and conversation history search for Claude Code sessions.
 
 ## Prerequisites
 
@@ -32,6 +32,15 @@ vestiga impact my.app.core/handler
 
 # Search git history
 vestiga history "authentication"
+
+# Index and list Claude Code conversation sessions
+vestiga conversations --index -p /path/to/project
+
+# Search conversation history
+vestiga conversation-search "FTS5 search"
+
+# View a single conversation
+vestiga conversation <session-id>
 ```
 
 ## CLI Reference
@@ -40,13 +49,17 @@ vestiga history "authentication"
 vestiga <command> [options] [args]
 
 Commands:
-  deps       Find all namespaces that depend on a namespace
-  history    Search git commit history
-  impact     Analyse impact of changing a symbol
-  index      Index a project for searching
-  mcp        Start the MCP JSON-RPC server (for AI tool integration)
-  refs       Find all references to a symbol
-  search     Search indexed code
+  conversation        View a single conversation session
+  conversation-search Search across conversation history
+  conversations       List indexed conversation sessions
+  deps                Find all namespaces that depend on a namespace
+  history             Search git commit history
+  hotspots            Find most frequently changed files
+  impact              Analyse impact of changing a symbol
+  index               Index a project for searching
+  mcp                 Start the MCP JSON-RPC server (for AI tool integration)
+  refs                Find all references to a symbol
+  search              Search indexed code
 
 Run 'vestiga <command> --help' for command-specific options.
 ```
@@ -107,6 +120,47 @@ vestiga history [opts] <query>
 # Examples
 vestiga history "authentication"
 vestiga history -f src/my/app/auth.clj "fix"
+```
+
+### vestiga conversations
+
+```bash
+vestiga conversations [opts]
+  -p, --project-root PATH  Project root directory (default: .)
+  -d, --db PATH            Database path
+  -l, --limit N            Max sessions (default: 20)
+  -i, --index              Index conversations before listing
+
+# Examples
+vestiga conversations --index -p /path/to/project
+vestiga conversations -l 5
+```
+
+### vestiga conversation
+
+```bash
+vestiga conversation [opts] <session-id>
+  -d, --db PATH            Database path
+  -r, --role ROLE          Filter by role (user/assistant)
+
+# Examples
+vestiga conversation abc123-def456
+vestiga conversation --role user abc123-def456
+```
+
+### vestiga conversation-search
+
+```bash
+vestiga conversation-search [opts] <query>
+  -d, --db PATH            Database path
+  -l, --limit N            Max results (default: 20)
+  -r, --role ROLE          Filter by role (user/assistant)
+  -t, --tool TOOL          Filter by tool name (e.g. Read, Bash, Edit)
+
+# Examples
+vestiga conversation-search "FTS5 search"
+vestiga conversation-search --role assistant "refactor"
+vestiga conversation-search --tool Bash "deploy"
 ```
 
 ### vestiga index
@@ -171,6 +225,8 @@ Or for development:
 | `search_history` | `vestiga history` |
 | `index_project` | `vestiga index` |
 | `edit_code` | — (MCP only) |
+| `search_conversations` | `vestiga conversation-search` |
+| `list_conversations` | `vestiga conversations` |
 
 ### edit_code
 
@@ -209,15 +265,15 @@ The engine uses [rewrite-clj](https://github.com/clj-commons/rewrite-clj) for wh
 
 ## Architecture
 
-Polylith workspace with 7 components and 1 base.
+Polylith workspace with 8 components and 1 base.
 
 ```
-                  server (base)
-                  |- CLI + MCP entry point
-                  v
-    .------+------+------+------+------+------.
-    |      |      |      |      |      |      |
-  config   db   index  embed  search  mcp    ast
+                       server (base)
+                       |- CLI + MCP entry point
+                       v
+    .------+------+------+------+------+------+--------------.
+    |      |      |      |      |      |      |              |
+  config   db   index  embed  search  mcp    ast   conversation
 ```
 
 ### Components
@@ -231,6 +287,7 @@ Polylith workspace with 7 components and 1 base.
 | **search** | Hybrid search engine, Reciprocal Rank Fusion ranking |
 | **mcp** | MCP JSON-RPC server, tool definitions and handlers, stdio transport |
 | **ast** | AST-targeted edit engine: resolve symbols by qualified name, surgical source rewriting via rewrite-clj |
+| **conversation** | Claude Code conversation history: JSONL parsing, session discovery, FTS5-indexed search |
 
 ### Directory Structure
 
@@ -239,7 +296,7 @@ vestiga/
   workspace.edn              # Polylith workspace config
   deps.edn                   # Root deps with :dev, :test, :poly aliases
   build.clj                  # Uberjar + GraalVM native-image build
-  components/                # 7 components (config, db, index, embed, search, mcp, ast)
+  components/                # 8 components (config, db, index, embed, search, mcp, ast, conversation)
   bases/server/              # CLI entry point
   projects/vestiga/          # Deployable project
   development/               # REPL + shared test utilities

@@ -20,6 +20,7 @@
                                    "components/search/src"
                                    "components/mcp/src"
                                    "components/ast/src"
+                                   "components/conversation/src"
                                    "bases/server/src"
                                    "bases/server/resources"]}
            :native  {:main-opts ["-m" "build" "native"]}
@@ -33,5 +34,6 @@
                                    "components/search/test"
                                    "components/mcp/test"
                                    "components/ast/test"
+                                   "components/conversation/test"
                                    "development/test"]}
            :uberjar {:main-opts ["-m" "build" "uber"]}}}

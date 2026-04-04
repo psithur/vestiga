@@ -27,7 +27,7 @@
            ;; Verify schema version was set
            (let [versions (db/query conn "SELECT version FROM schema_version" [])]
              (is
-               (= 1 (:version (first versions)))))
+               (= 3 (:version (first versions)))))
            (finally (db/close-db conn))))))
 
 (deftest test-ensure-schema-idempotent
