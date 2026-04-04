@@ -167,3 +167,31 @@
   "Find all namespaces that depend on the given namespace."
   [db project-id namespace-name]
   (db/query db "SELECT DISTINCT from_ns FROM ns_deps WHERE project_id = ? AND to_ns = ?" [project-id namespace-name]))
+
+(defn hotspots
+  "Find the most frequently changed files.
+   Returns [{:file_path, :edit_count, :total_added, :total_removed} ...]
+   ordered by edit count descending."
+  [db &
+   {:keys [project-id limit since namespace]
+    :or   {limit 20}}]
+  (let
+    [base-sql
+     "SELECT cf.file_path,
+                         COUNT(*) as edit_count,
+                         SUM(cf.lines_added) as total_added,
+                         SUM(cf.lines_removed) as total_removed
+                  FROM commit_files cf
+                  JOIN commits c ON c.id = cf.commit_id"
+     conditions (cond-> []
+                  project-id (conj "c.project_id = ?")
+                  since      (conj "c.timestamp >= ?")
+                  namespace  (conj "cf.file_path LIKE ?"))
+     where (if (seq conditions) (str " WHERE " (str/join " AND " conditions)) "")
+     sql (str base-sql where " GROUP BY cf.file_path ORDER BY edit_count DESC LIMIT ?")
+     params (cond-> []
+              project-id (conj project-id)
+              since      (conj since)
+              namespace  (conj (str "%" (str/replace namespace "." "/") "%"))
+              true       (conj limit))]
+    (db/query db sql params)))

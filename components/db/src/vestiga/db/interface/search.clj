@@ -33,3 +33,7 @@
 (defn find-ns-dependents
   [db project-id namespace-name]
   (impl/find-ns-dependents db project-id namespace-name))
+
+(defn hotspots
+  [db & args]
+  (apply impl/hotspots db args))

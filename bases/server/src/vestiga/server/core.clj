@@ -271,31 +271,66 @@
             (println "No matching commits found.")))))))
 
 ;; ---------------------------------------------------------------------------
+;; Subcommand: hotspots
+;; ---------------------------------------------------------------------------
+
+(def hotspots-opts
+  [["-d" "--db PATH" "Database path" :default ".vestiga/db.sqlite"]
+   ["-l" "--limit N" "Max results" :default 20 :parse-fn parse-long]
+   ["-n" "--namespace NS" "Filter to files matching namespace path"]
+   ["-s" "--since DAYS" "Only count commits from the last N days" :parse-fn parse-long]
+   ["-h" "--help" "Show help"]])
+
+(defn cmd-hotspots
+  [{:keys [opts]}]
+  (with-db-conn
+    (resolve-db-path opts)
+    (fn [db]
+      (let [since-ts (when (:since opts)
+                       (- (quot (System/currentTimeMillis) 1000) (* (:since opts) 86400)))
+            results  (db-search/hotspots db :limit (:limit opts) :since since-ts :namespace (:namespace opts))]
+        (if (empty? results)
+          (println "No hotspots found.")
+          (do (println (format "%-60s %6s %8s %8s" "File" "Edits" "+Lines" "-Lines"))
+              (println (apply str (repeat 86 "-")))
+              (doseq [r results]
+                (println
+                  (format
+                    "%-60s %6d %8s %8s"
+                    (:file_path r)
+                    (:edit_count r)
+                    (or (:total_added r) "-")
+                    (or (:total_removed r) "-"))))))))))
+
+;; ---------------------------------------------------------------------------
 ;; Top-level dispatch
 ;; ---------------------------------------------------------------------------
 
 (def subcommands
-  {"mcp"     {:fn   cmd-mcp
-              :opts mcp-opts
-              :desc "Start the MCP JSON-RPC server (for AI tool integration)"}
-   "index"   {:fn   cmd-index
-              :opts index-opts
-              :desc "Index a project for searching"}
-   "search"  {:fn   cmd-search
-              :opts search-opts
-              :desc "Search indexed code"}
-   "refs"    {:fn   cmd-refs
-              :opts refs-opts
-              :desc "Find all references to a symbol"}
-   "deps"    {:fn   cmd-deps
-              :opts deps-opts
-              :desc "Find all namespaces that depend on a namespace"}
-   "impact"  {:fn   cmd-impact
-              :opts impact-opts
-              :desc "Analyse impact of changing a symbol"}
-   "history" {:fn   cmd-history
-              :opts history-opts
-              :desc "Search git commit history"}})
+  {"mcp"      {:fn   cmd-mcp
+               :opts mcp-opts
+               :desc "Start the MCP JSON-RPC server (for AI tool integration)"}
+   "index"    {:fn   cmd-index
+               :opts index-opts
+               :desc "Index a project for searching"}
+   "search"   {:fn   cmd-search
+               :opts search-opts
+               :desc "Search indexed code"}
+   "refs"     {:fn   cmd-refs
+               :opts refs-opts
+               :desc "Find all references to a symbol"}
+   "deps"     {:fn   cmd-deps
+               :opts deps-opts
+               :desc "Find all namespaces that depend on a namespace"}
+   "impact"   {:fn   cmd-impact
+               :opts impact-opts
+               :desc "Analyse impact of changing a symbol"}
+   "history"  {:fn   cmd-history
+               :opts history-opts
+               :desc "Search git commit history"}
+   "hotspots" {:fn   cmd-hotspots
+               :opts hotspots-opts
+               :desc "Find most frequently changed files"}})
 
 (defn- print-usage
   []
