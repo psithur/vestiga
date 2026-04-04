@@ -72,7 +72,11 @@
                      "--config"
                      config-str
                      "--parallel")]
-    (if (> (:exit result) 2)
+    ;; clj-kondo exits 2 for warnings, 3 for errors in linted code — analysis is still valid.
+    ;; Only fail if clj-kondo itself crashed (no stdout) or couldn't run at all.
+    (if (and
+          (> (:exit result) 3)
+          (str/blank? (:out result)))
       {:error (str "clj-kondo failed with exit code " (:exit result) ": " (:err result))}
       (try (let [parsed   (json/read-str (:out result) :key-fn keyword)
                  analysis (:analysis parsed)]
