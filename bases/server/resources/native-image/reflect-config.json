@@ -8,5 +8,20 @@
     "allDeclaredMethods": true,
     "allDeclaredFields": true,
     "allDeclaredConstructors": true
+  },
+  {
+    "name": "org.sqlite.SQLiteConfig",
+    "allDeclaredMethods": true,
+    "allDeclaredConstructors": true
+  },
+  {
+    "name": "org.sqlite.SQLiteConfig$Pragma",
+    "allDeclaredMethods": true,
+    "allDeclaredFields": true
+  },
+  {
+    "name": "org.sqlite.SQLiteConnection",
+    "allDeclaredMethods": true,
+    "allDeclaredConstructors": true
   }
 ]

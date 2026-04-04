@@ -15,6 +15,7 @@
    "components/embed/src"
    "components/search/src"
    "components/mcp/src"
+   "components/ast/src"
    "bases/server/src"
    "bases/server/resources"])
 
