@@ -61,6 +61,16 @@
             (= 1 (count results))))
         (finally (db/close-db conn))))))
 
+(deftest test-schema-version-mismatch
+  (testing "throws on version mismatch"
+    (let [conn (db/open-db ":memory:")]
+      (try (schema/ensure-schema! conn)
+           ;; Tamper with the version
+           (db/execute! conn "UPDATE schema_version SET version = 1" [])
+           (is
+             (thrown-with-msg? clojure.lang.ExceptionInfo #"schema version mismatch" (schema/ensure-schema! conn)))
+           (finally (db/close-db conn))))))
+
 (deftest test-schema-on-file-db
   (testing "schema applies correctly to a file-based database (not just :memory:)"
     (let [dir  (str (java.io.File/createTempFile "vestiga-test" ".db"))
