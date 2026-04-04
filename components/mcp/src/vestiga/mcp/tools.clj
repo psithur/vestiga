@@ -5,6 +5,22 @@
     [vestiga.search.interface :as search]))
 
 (def ^:dynamic *db* nil)
+(def ^:dynamic *project-root* nil)
+
+(defn- ensure-fresh-index!
+  "Run a quick incremental re-index if the project root is known.
+   Only re-chunks files whose content hash changed. Skips embeddings
+   for speed — those are updated on full index runs."
+  []
+  (when (and
+          *db*
+          *project-root*)
+    (try (let [index! (requiring-resolve 'vestiga.index.interface/index-project!)]
+           (index! *db* *project-root* :skip-embeddings true))
+         (catch Exception e
+           ;; Don't let index failures break queries
+           (let [log-warn (requiring-resolve 'clojure.tools.logging/warn)]
+             (log-warn "Auto re-index failed:" (.getMessage e)))))))
 
 (def tool-definitions
   [{:name "search_code"
@@ -191,6 +207,7 @@
 
 (defmethod call-tool "search_code"
   [_ args]
+  (ensure-fresh-index!)
   (let [results (search/search
                   *db*
                   (:query args)
@@ -206,18 +223,21 @@
 
 (defmethod call-tool "find_references"
   [_ args]
+  (ensure-fresh-index!)
   (let [refs (search/find-references *db* (:qualified_name args))]
     {:content [{:type "text"
                 :text (format-refs refs)}]}))
 
 (defmethod call-tool "find_dependents"
   [_ args]
+  (ensure-fresh-index!)
   (let [deps (search/find-dependents *db* (:namespace args))]
     {:content [{:type "text"
                 :text (if (empty? deps) "No dependents found." (str/join "\n" (map :from_ns deps)))}]}))
 
 (defmethod call-tool "impact_analysis"
   [_ args]
+  (ensure-fresh-index!)
   (let [impact (search/impact-analysis *db* (:qualified_name args))]
     {:content [{:type "text"
                 :text (format-impact impact)}]}))

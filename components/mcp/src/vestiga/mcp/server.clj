@@ -36,10 +36,11 @@
 (defn start-server!
   "Start the MCP server, reading JSON-RPC from stdin, writing to stdout.
    Blocks until stdin is closed."
-  [db]
+  [db & {:keys [project-root]}]
   (log/info "Starting MCP server...")
   (let [reader (transport/make-reader System/in)]
-    (binding [tools/*db* db]
+    (binding [tools/*db* db
+              tools/*project-root* project-root]
       (loop []
         (when-let [request (transport/read-message reader)]
           (log/debug "Received request:" (:method request))

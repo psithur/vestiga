@@ -4,8 +4,8 @@
     [vestiga.mcp.tools :as tools]))
 
 (defn start-server!
-  [db]
-  (server/start-server! db))
+  [db & {:keys [project-root]}]
+  (server/start-server! db :project-root project-root))
 
 (defn list-tools
   []

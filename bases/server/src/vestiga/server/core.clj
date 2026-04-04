@@ -75,7 +75,7 @@
     (with-db-conn
       db-path
       (fn [db]
-        (mcp/start-server! db)))))
+        (mcp/start-server! db :project-root project-root)))))
 
 ;; ---------------------------------------------------------------------------
 ;; Subcommand: index
