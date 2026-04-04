@@ -2,7 +2,7 @@
   (:require
     [clojure.java.io :as io]
     [clojure.tools.logging :as log])
-  (:import [java.sql DriverManager Connection PreparedStatement ResultSet Statement]))
+  (:import [java.sql Connection PreparedStatement ResultSet Statement]))
 
 (defn- get-conn ^Connection [db] (:conn db))
 
@@ -16,17 +16,28 @@
       (.execute "PRAGMA busy_timeout = 5000")
       (.close))))
 
+(defn- make-connection
+  "Create a SQLite connection with load_extension enabled."
+  ^Connection [^String db-path]
+  (let [config (doto (org.sqlite.SQLiteConfig.) (.enableLoadExtension true))]
+    (.createConnection config (str "jdbc:sqlite:" db-path))))
+
+(defn- resolve-vec-path
+  "Resolve the sqlite-vec extension path.
+   Priority: explicit arg > SQLITE_VEC_PATH env var > bare 'vec0'."
+  [vec-extension-path]
+  (or vec-extension-path (System/getenv "SQLITE_VEC_PATH") "vec0"))
+
 (defn- try-load-vec-extension!
   "Attempt to load the sqlite-vec extension. Returns true on success."
   [^Connection conn vec-extension-path]
-  (try (let [stmt (.createStatement conn)]
-         (if vec-extension-path
-           (.execute stmt (str "SELECT load_extension('" vec-extension-path "')"))
-           (.execute stmt "SELECT load_extension('vec0')"))
-         (.close stmt)
-         (log/info "sqlite-vec extension loaded successfully")
-         true)
-       (catch Exception e (log/warn "sqlite-vec extension not available:" (.getMessage e)) false)))
+  (let [path (resolve-vec-path vec-extension-path)]
+    (try (let [stmt (.createStatement conn)]
+           (.execute stmt (str "SELECT load_extension('" path "')"))
+           (.close stmt)
+           (log/info "sqlite-vec extension loaded from" path)
+           true)
+         (catch Exception e (log/warn "sqlite-vec extension not available:" (.getMessage e)) false))))
 
 (defn open-db
   "Opens a SQLite connection to the given path.
@@ -46,7 +57,7 @@
               parent
               (not (.exists parent)))
         (.mkdirs parent))))
-  (let [conn (DriverManager/getConnection (str "jdbc:sqlite:" db-path))]
+  (let [conn (make-connection db-path)]
     (apply-pragmas! conn)
     (let [vec? (try-load-vec-extension! conn vec-extension-path)]
       {:conn    conn
