@@ -71,8 +71,8 @@
                   (log/info "Starting Ollama serve...")
                   (try (proc/process
                          ["ollama" "serve"]
-                         {:out      :write
-                          :err      :write
+                         {:out      (java.io.File. "/dev/null")
+                          :err      (java.io.File. "/dev/null")
                           :shutdown :destroy})
                        (catch java.io.IOException e
                          (log/warn "Ollama binary not found — skipping embeddings:" (.getMessage e))
