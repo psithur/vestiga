@@ -61,3 +61,8 @@
    Supports incremental indexing — only parses new lines since last index."
   [db project-root]
   (indexer/index-conversations! db project-root))
+
+(defn index-all-conversations!
+  "Index all Claude Code conversation sessions across every project."
+  [db]
+  (indexer/index-all-conversations! db))

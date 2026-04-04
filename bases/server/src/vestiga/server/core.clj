@@ -325,6 +325,7 @@
    ["-d" "--db PATH" "Database path"]
    ["-l" "--limit N" "Max sessions" :default 20 :parse-fn parse-long]
    ["-i" "--index" "Index conversations before listing"]
+   ["-a" "--all" "Index/list conversations from all projects (not just current)"]
    ["-h" "--help" "Show help"]])
 
 (defn cmd-conversations
@@ -335,7 +336,11 @@
       db-path
       (fn [db]
         (when (:index opts)
-          (index-conversations! db project-root))
+          (if (:all opts)
+            (do (println "Indexing all Claude Code conversations...")
+                (conversation/index-all-conversations! db)
+                (println "Done."))
+            (index-conversations! db project-root)))
         (let [sessions (db-search/list-conversation-sessions db :limit (:limit opts))]
           (if (empty? sessions)
             (println "No conversation sessions found. Run with --index to index conversations first.")
