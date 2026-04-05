@@ -60,12 +60,15 @@
       (embed-texts [_ texts]
         (let [batches        (partition-all batch-size texts)
               all-embeddings (mapcat (fn [batch]
-                                       (let [result (embed-batch client base-url model (vec batch) timeout)]
-                                         (when (and
-                                                 (nil? @dim)
-                                                 (seq result))
-                                           (reset! dim (count (first result))))
-                                         result))
+                                       (try (let [result (embed-batch client base-url model (vec batch) timeout)]
+                                              (when (and
+                                                      (nil? @dim)
+                                                      (seq result))
+                                                (reset! dim (count (first result))))
+                                              (or result []))
+                                            (catch Exception e
+                                              (log/warn "Embedding batch failed, skipping:" (.getMessage e))
+                                              [])))
                                batches)]
           (vec all-embeddings)))
 

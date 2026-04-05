@@ -60,20 +60,32 @@
                :tool-names     (:conversation/tool-names msg)
                :is-sidechain   (:conversation/is-sidechain msg)})))))))
 
+(def ^:private embed-batch-size "Number of messages to embed and persist per batch." 32)
+
 (defn embed-conversations!
   "Generate embeddings for conversation messages that don't yet have them.
-   Uses batch embedding via the given provider."
+   Embeds and persists in small batches so progress survives failures."
   [db provider]
   (let [unembedded (ops/get-conversation-messages-without-embeddings db)]
     (when (seq unembedded)
-      (log/info "Embedding" (count unembedded) "conversation messages")
-      (let [texts      (mapv #(truncate-for-embedding (:content_text %)) unembedded)
-            embeddings (embed/embed-texts provider texts)
-            embedded   (count embeddings)]
-        (when (pos? embedded)
-          (doseq [[msg embedding] (map vector unembedded embeddings)]
-            (ops/upsert-conversation-message-embedding! db (:id msg) embedding))
-          (log/info "Embedded" embedded "of" (count unembedded) "conversation messages"))))))
+      (let [total   (count unembedded)
+            batches (partition-all embed-batch-size unembedded)]
+        (log/info "Embedding" total "conversation messages in" (count batches) "batches")
+        (loop [remaining batches
+               embedded  0]
+          (if-let [batch (first remaining)]
+            (let [texts      (mapv #(truncate-for-embedding (:content_text %)) batch)
+                  embeddings (try (embed/embed-texts provider texts)
+                                  (catch Exception e (log/warn "Batch failed, skipping:" (.getMessage e)) nil))
+                  n          (count (or embeddings []))]
+              (when (pos? n)
+                (doseq [[msg emb] (map vector batch embeddings)]
+                  (ops/upsert-conversation-message-embedding! db (:id msg) emb)))
+              (let [done (+ embedded n)]
+                (when (pos? n)
+                  (log/info "Embedded" done "/" total "conversation messages"))
+                (recur (rest remaining) done)))
+            (log/info "Conversation embedding complete:" embedded "/" total)))))))
 
 (defn index-conversations!
   "Index Claude Code conversation sessions for a project into the DB."
